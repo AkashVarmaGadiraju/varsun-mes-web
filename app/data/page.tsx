@@ -90,7 +90,7 @@ export default function EventsPage() {
 			</div>
 
 			{/* Machines List */}
-			<main className="px-4 space-y-3 pt-2 flex-1 flex flex-col">
+			<main className="px-4 space-y-2 flex-1 flex flex-col">
 				{filteredMachines.map((machine) => {
 					const { untaggedCount, status, signal } = getMachineStatus(machine.id, currentDate);
 					const isOnline = status !== "Offline";

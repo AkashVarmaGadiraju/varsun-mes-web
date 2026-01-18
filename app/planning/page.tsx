@@ -146,7 +146,7 @@ export default function PlanningPage() {
 			</div>
 
 			{/* Assignments List */}
-			<main className="px-4 space-y-3 pt-2 flex-1 flex flex-col">
+			<main className="px-4 space-y-2 flex-1 flex flex-col">
 				{filteredAssignments.map((item) => (
 					<Link
 						key={item.id}

@@ -15,9 +15,10 @@ type AppHeaderProps = {
 	subtitle?: React.ReactNode;
 	showDateNavigator?: boolean;
 	dateNavigatorDisabled?: boolean;
+	rightElement?: React.ReactNode;
 };
 
-export default function AppHeader({ title, subtitle, showDateNavigator = false, dateNavigatorDisabled = false }: AppHeaderProps) {
+export default function AppHeader({ title, subtitle, showDateNavigator = false, dateNavigatorDisabled = false, rightElement }: AppHeaderProps) {
 	const { currentDate, setCurrentDate } = useData();
 
 	return (
@@ -34,9 +35,13 @@ export default function AppHeader({ title, subtitle, showDateNavigator = false, 
 						{subtitle && <div className="mt-0.5 header-subtitle uppercase flex items-center gap-1">{subtitle}</div>}
 					</div>
 					<div className="flex items-center gap-3">
-						<button className="p-1 rounded-md active:scale-95 transition-transform hover:bg-gray-50">
-							<span className="material-symbols-outlined header-icon text-primary">menu</span>
-						</button>
+						{rightElement ? (
+							rightElement
+						) : (
+							<button className="p-1 rounded-md active:scale-95 transition-transform hover:bg-gray-50">
+								<span className="material-symbols-outlined header-icon text-primary">menu</span>
+							</button>
+						)}
 					</div>
 				</div>
 			</header>
