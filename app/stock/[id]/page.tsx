@@ -9,6 +9,7 @@ import { NumberCounter } from "@/components/ui/NumberCounter";
 import { useData } from "@/context/DataContext";
 import type { Order } from "@/lib/types";
 import { createDeviceStateEventGroup, fetchDeviceList, readDeviceStateEventGroupsWithItemsByCluster, updateDeviceStateEventGroupItems, type DeviceSummary } from "@/utils/scripts";
+import { combineISTDateAndTime, formatTimeToIST24 } from "@/utils/dateUtils";
 
 type ApiEventItem = {
 	id?: string;
@@ -126,20 +127,12 @@ function StockEntryForm() {
 	};
 
 	const toTimeHHMM = (value?: string | null) => {
-		if (!value) return "";
-		const d = new Date(value);
-		if (Number.isNaN(d.getTime())) return "";
-		return d.toISOString().slice(11, 16);
+		return formatTimeToIST24(value);
 	};
 
-	// Build ISO datetime: preserves date from baseDate, updates time from HH:MM string
+	// Build ISO datetime: preserves date from baseDate, updates time from HH:MM string (interpreted as IST)
 	const buildSegmentDateTime = (baseDate: string, timeHHMM: string) => {
-		if (!baseDate || !timeHHMM) return undefined;
-		const base = new Date(baseDate);
-		if (Number.isNaN(base.getTime())) return undefined;
-		const [hours, minutes] = timeHHMM.split(":").map((p) => Number(p));
-		base.setHours(Number.isFinite(hours) ? hours : 0, Number.isFinite(minutes) ? minutes : 0, 0, 0);
-		return base.toISOString();
+		return combineISTDateAndTime(baseDate, timeHHMM);
 	};
 
 	useEffect(() => {
@@ -267,6 +260,7 @@ function StockEntryForm() {
 			setToolChanges(built.toolChanges || 0);
 			setRejects(built.rejects || 0);
 			setRemarks(built.remarks || "");
+			// Auto-populate actual times from segment times if not already set
 			setActualStartTime(built.actualStartTime || built.startTime || "");
 			setActualEndTime(built.actualEndTime || built.endTime || "");
 
@@ -333,6 +327,26 @@ function StockEntryForm() {
 					const end = new Date(segmentEnd);
 					end.setDate(end.getDate() + 1);
 					segmentEnd = end.toISOString();
+				}
+
+				// Validate actual times against group range (similar to create form validation)
+				if (groupRangeStart && groupRangeEnd && segmentStart && segmentEnd) {
+					const rangeStartMs = new Date(groupRangeStart).getTime();
+					const rangeEndMs = new Date(groupRangeEnd).getTime();
+					const segStartMs = new Date(segmentStart).getTime();
+					const segEndMs = new Date(segmentEnd).getTime();
+
+					if (
+						!Number.isFinite(rangeStartMs) ||
+						!Number.isFinite(rangeEndMs) ||
+						!Number.isFinite(segStartMs) ||
+						!Number.isFinite(segEndMs) ||
+						segStartMs < rangeStartMs ||
+						segEndMs > rangeEndMs
+					) {
+						toast.error("Actual times must be within the shift window");
+						return;
+					}
 				}
 
 				// Build range from group or from order date
