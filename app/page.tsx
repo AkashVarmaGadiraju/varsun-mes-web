@@ -3,18 +3,200 @@
 import React from "react";
 import Link from "next/link";
 import AppHeader from "@/components/AppHeader";
+import EmptyState from "@/components/EmptyState";
+import Loader from "@/components/Loader";
 import { useData } from "@/context/DataContext";
 
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { MetricValue, MetricLabel, SectionTitle } from "@/components/ui/Typography";
 
+import { fetchDeviceList, readDeviceStateEventGroupsWithItemsByCluster, type DeviceSummary } from "@/utils/scripts";
+import { formatTimeToIST, getISTDate } from "@/utils/dateUtils";
+import { Assignment } from "@/lib/types";
+
+type ApiEventItem = {
+	id?: string;
+	category?: string | null;
+	segmentStart?: string | null;
+	segmentEnd?: string | null;
+	metadata?: Record<string, unknown> | null;
+};
+type ApiEventGroup = {
+	id?: string;
+	deviceId?: string;
+	rangeStart?: string | null;
+	rangeEnd?: string | null;
+	Items?: ApiEventItem[] | null;
+};
+
 export default function Home() {
-	const { orders, currentDate, setCurrentDate } = useData();
+	const {
+		orders,
+		currentDate,
+		setCurrentDate,
+		globalAssignments,
+		setGlobalAssignments,
+		globalDevices,
+		setGlobalDevices,
+		globalDataDate,
+		setGlobalDataDate,
+	} = useData();
+
+	const lhtClusterId = process.env.NEXT_PUBLIC_LHT_CLUSTER_ID;
+	const lhtAccountId = process.env.NEXT_PUBLIC_LHT_ACCOUNT_ID;
+	const lhtApplicationId = process.env.NEXT_PUBLIC_APPLICATION_ID;
+	const lighthouseEnabled = Boolean(lhtClusterId && lhtAccountId && lhtApplicationId);
+
+	const [isError, setIsError] = React.useState(false);
+	const [isLoading, setIsLoading] = React.useState(false);
+	const deviceFetchRef = React.useRef(false);
+
+	// Reset error when date changes
+	React.useEffect(() => {
+		setIsError(false);
+	}, [currentDate]);
+
+	// Fetch Devices if needed
+	React.useEffect(() => {
+		if (!lighthouseEnabled || !lhtClusterId) return;
+		if (globalDevices.length) return;
+		if (deviceFetchRef.current) return;
+		deviceFetchRef.current = true;
+
+		fetchDeviceList({ clusterId: lhtClusterId })
+			.then((result) => setGlobalDevices(result))
+			.catch((error) => {
+				console.error(error);
+				setIsError(true);
+			});
+	}, [globalDevices.length, lighthouseEnabled, lhtClusterId, setGlobalDevices]);
+
+	// Fetch Assignments if needed
+	React.useEffect(() => {
+		if (!lighthouseEnabled || !lhtClusterId || !lhtAccountId) return;
+		if (lighthouseEnabled && !globalDevices.length) return;
+		if (globalDataDate === currentDate && globalAssignments) {
+			setIsLoading(false);
+			return;
+		}
+
+		setIsLoading(true);
+
+		const base = new Date(currentDate);
+		const start = new Date(base);
+		start.setHours(0, 0, 0, 0);
+		const end = new Date(base);
+		end.setDate(end.getDate() + 1);
+		end.setHours(23, 59, 59, 999);
+
+		const toLocalYYYYMMDD = (iso: string) => {
+			const d = getISTDate(iso);
+			if (!d) return "";
+			return d.toISOString().split("T")[0];
+		};
+
+		const deviceLabel = (device?: DeviceSummary) =>
+			device?.deviceName || device?.serialNumber || device?.foreignId || device?.id || "Unknown Device";
+
+		let cancelled = false;
+
+		readDeviceStateEventGroupsWithItemsByCluster({
+			clusterId: lhtClusterId,
+			applicationId: lhtApplicationId,
+			account: { id: lhtAccountId },
+			query: { rangeStart: start.toISOString(), rangeEnd: end.toISOString() },
+		})
+			.then((groupsUnknown: unknown) => {
+				if (cancelled) return;
+				const groups: ApiEventGroup[] = Array.isArray(groupsUnknown) ? (groupsUnknown as ApiEventGroup[]) : [];
+				const mapped: any[] = groups.flatMap((group) => {
+					const rangeStart = typeof group?.rangeStart === "string" ? group.rangeStart : null;
+					const groupLocalDate = rangeStart ? toLocalYYYYMMDD(rangeStart) : currentDate;
+					if (groupLocalDate !== currentDate) return [];
+
+					const deviceId = typeof group?.deviceId === "string" ? group.deviceId : "";
+					const machineName = (() => {
+						if (!deviceId) return "Unknown Device";
+						const device = globalDevices.find((d) => d.id === deviceId);
+						if (!device) return deviceId;
+						const label = deviceLabel(device);
+						return label && label !== "Unknown Device" ? label : deviceId;
+					})();
+
+					const items = Array.isArray(group?.Items) ? group.Items : [];
+					return items.flatMap((item) => {
+						const metadata = item?.metadata ?? {};
+						const workOrder = String(metadata.workOrder ?? "");
+						if (!workOrder) return [];
+						const batch = Number(metadata.opBatchQty ?? 0);
+						const estPart = String(metadata.estPartAdd ?? "");
+						const startTime = formatTimeToIST(item?.segmentStart ?? undefined);
+						const endTime = formatTimeToIST(item?.segmentEnd ?? undefined);
+						const category = typeof item?.category === "string" ? String(item.category).toUpperCase() : "";
+						const status = category === "COMPLETED" ? "COMPLETED" : "PLANNED";
+						const groupId = String(group?.id ?? workOrder);
+						const itemId = String(item?.id ?? "");
+
+						return [
+							{
+								id: groupId,
+								workOrder,
+								partNumber: String(metadata.partNumber ?? ""),
+								machine: machineName,
+								operator: String(metadata.operatorCode ?? ""),
+								date: currentDate,
+								shift: "Day Shift (S1)",
+								startTime,
+								endTime,
+								code: String(metadata.operatorCode ?? ""),
+								opNumber: 0,
+								batch,
+								estPart,
+								target: batch,
+								status,
+								lhtDeviceId: deviceId || undefined,
+								lhtGroupId: groupId,
+								lhtItemId: itemId,
+							},
+						];
+					});
+				});
+				setGlobalAssignments(mapped);
+				setGlobalDataDate(currentDate);
+			})
+			.catch((error) => {
+				if (cancelled) return;
+				console.error(error);
+				setGlobalAssignments([]);
+				setIsError(true);
+			})
+			.finally(() => {
+				if (!cancelled) setIsLoading(false);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [
+		currentDate,
+		globalDevices,
+		lighthouseEnabled,
+		lhtAccountId,
+		lhtApplicationId,
+		lhtClusterId,
+		globalAssignments,
+		setGlobalAssignments,
+		setGlobalDataDate,
+		globalDataDate,
+	]);
 
 	// Metrics Logic
+	// Use globalAssignments if available (and we are in lighthouse mode), otherwise local orders
+	const sourceOrders = lighthouseEnabled ? ((globalAssignments as any[]) ?? []) : orders;
+
 	// Filter all orders by the global currentDate
-	const todaysOrders = orders.filter((o) => o.date === currentDate);
+	const todaysOrders = sourceOrders.filter((o) => o.date === currentDate);
 
 	const activeOrders = todaysOrders.filter((o) => o.status === "PLANNED" || o.status === "ACTIVE");
 	const completedOrders = todaysOrders.filter((o) => o.status === "COMPLETED");
@@ -29,6 +211,45 @@ export default function Home() {
 
 	// Active Machines: Unique machines in active orders
 	const activeMachines = new Set(activeOrders.map((o) => o.machine)).size;
+
+	if (isError) {
+		return (
+			<div className="flex flex-col min-h-screen bg-background-dashboard">
+				<AppHeader title="Production Overview" subtitle="Live Plant Metrics" showDateNavigator={true} />
+				<div className="flex-1 flex flex-col items-center justify-center -mt-20">
+					<EmptyState
+						icon="cloud_off"
+						title="Connection Failed"
+						description={
+							<span>
+								Unable to retrieve dashboard data. <br />
+								<span className="text-gray-400 text-xs mt-1 block">Please check your connection.</span>
+							</span>
+						}
+						action={
+							<button
+								onClick={() => setIsError(false)}
+								className="mt-2 h-9 px-6 rounded-lg bg-primary text-white font-bold text-xs shadow-md shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 uppercase tracking-wide"
+							>
+								Retry
+							</button>
+						}
+					/>
+				</div>
+			</div>
+		);
+	}
+
+	if (isLoading || (lighthouseEnabled && globalAssignments === null)) {
+		return (
+			<div className="flex flex-col min-h-screen bg-background-dashboard">
+				<AppHeader title="Production Overview" subtitle="Live Plant Metrics" showDateNavigator={true} />
+				<div className="flex-1 flex flex-col items-center justify-center -mt-20">
+					<Loader />
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<div className="flex flex-col min-h-screen bg-background-dashboard">
@@ -80,29 +301,32 @@ export default function Home() {
 					</div>
 
 					<div className="space-y-3">
-						{activeOrders.slice(0, 3).map((order) => (
-							<Card key={order.id} className="p-4">
-								<div className="flex justify-between items-start mb-3">
-									<div>
-										<p className="text-sm font-bold font-display text-primary">{order.id}</p>
-										<p className="text-xs-plus text-gray-500 font-medium mt-0.5">
-											{order.machine} • {order.operator}
-										</p>
+						{activeOrders.slice(0, 3).map((order) => {
+							const displayId = (order as Assignment).workOrder || order.id;
+							return (
+								<Card key={order.id} className="p-4">
+									<div className="flex justify-between items-start mb-3">
+										<div>
+											<p className="text-sm font-bold font-display text-primary">{displayId}</p>
+											<p className="text-xs-plus text-gray-500 font-medium mt-0.5">
+												{order.machine} • {order.operator}
+											</p>
+										</div>
+										<Badge>{order.partNumber}</Badge>
 									</div>
-									<Badge>{order.partNumber}</Badge>
-								</div>
-								{/* Simulated Progress Bar since we don't have real live data yet */}
-								<div className="space-y-1.5">
-									<div className="flex justify-between items-center text-xs-plus">
-										<span className="font-bold text-gray-500">Progress</span>
-										<span className="font-bold text-primary">0%</span>
+									{/* Simulated Progress Bar since we don't have real live data yet */}
+									<div className="space-y-1.5">
+										<div className="flex justify-between items-center text-xs-plus">
+											<span className="font-bold text-gray-500">Progress</span>
+											<span className="font-bold text-primary">0%</span>
+										</div>
+										<div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+											<div className="h-full bg-primary rounded-full" style={{ width: "0%" }}></div>
+										</div>
 									</div>
-									<div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-										<div className="h-full bg-primary rounded-full" style={{ width: "0%" }}></div>
-									</div>
-								</div>
-							</Card>
-						))}
+								</Card>
+							);
+						})}
 						{activeOrders.length === 0 && <div className="text-center py-6 text-gray-400 text-xs font-bold">No active orders</div>}
 					</div>
 				</section>
@@ -115,25 +339,28 @@ export default function Home() {
 
 					<Card className="overflow-hidden">
 						<div className="divide-y divide-gray-100">
-							{completedOrders.slice(0, 5).map((order) => (
-								<div key={order.id} className="p-3 flex items-center justify-between">
-									<div className="min-w-0">
-										<p className="text-xs font-bold text-primary truncate">{order.id}</p>
-										<p className="text-2xs text-gray-500 uppercase font-bold tracking-tight">{order.partNumber}</p>
+							{completedOrders.slice(0, 5).map((order) => {
+								const displayId = (order as Assignment).workOrder || order.id;
+								return (
+									<div key={order.id} className="p-3 flex items-center justify-between">
+										<div className="min-w-0">
+											<p className="text-xs font-bold text-primary truncate">{displayId}</p>
+											<p className="text-2xs text-gray-500 uppercase font-bold tracking-tight">{order.partNumber}</p>
+										</div>
+										<div className="text-right shrink-0">
+											<p className="text-xs-plus font-bold text-primary">
+												{order.actualOutput} / {order.target}
+											</p>
+											<Link
+												href={`/stock/${encodeURIComponent(order.id)}`}
+												className="text-2xs font-bold text-primary/70 underline uppercase"
+											>
+												Details
+											</Link>
+										</div>
 									</div>
-									<div className="text-right shrink-0">
-										<p className="text-xs-plus font-bold text-primary">
-											{order.actualOutput} / {order.target}
-										</p>
-										<Link
-											href={`/stock/${encodeURIComponent(order.id)}`}
-											className="text-2xs font-bold text-primary/70 underline uppercase"
-										>
-											Details
-										</Link>
-									</div>
-								</div>
-							))}
+								);
+							})}
 							{completedOrders.length === 0 && (
 								<div className="p-4 text-center text-gray-400 text-xs font-bold">No completed orders yet</div>
 							)}

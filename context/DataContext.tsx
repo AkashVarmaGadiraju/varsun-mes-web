@@ -30,6 +30,13 @@ interface DataContextType {
 	setEventsDevices: React.Dispatch<React.SetStateAction<DeviceSummary[]>>;
 	eventsDataDate: string | null;
 	setEventsDataDate: React.Dispatch<React.SetStateAction<string | null>>;
+	// Global State
+	globalAssignments: Assignment[] | null;
+	setGlobalAssignments: React.Dispatch<React.SetStateAction<Assignment[] | null>>;
+	globalDevices: DeviceSummary[];
+	setGlobalDevices: React.Dispatch<React.SetStateAction<DeviceSummary[]>>;
+	globalDataDate: string | null;
+	setGlobalDataDate: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -46,6 +53,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 	const [eventsData, setEventsData] = useState<any[] | null>(null);
 	const [eventsDevices, setEventsDevices] = useState<DeviceSummary[]>([]);
 	const [eventsDataDate, setEventsDataDate] = useState<string | null>(null);
+
+	// Global State
+	const [globalAssignments, setGlobalAssignments] = useState<Assignment[] | null>(null);
+	const [globalDevices, setGlobalDevices] = useState<DeviceSummary[]>([]);
+	const [globalDataDate, setGlobalDataDate] = useState<string | null>(null);
 
 	useEffect(() => {
 		// Load from local storage or use mock
@@ -110,6 +122,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 				setEventsDevices,
 				eventsDataDate,
 				setEventsDataDate,
+				globalAssignments,
+				setGlobalAssignments,
+				globalDevices,
+				setGlobalDevices,
+				globalDataDate,
+				setGlobalDataDate,
 			}}
 		>
 			{children}

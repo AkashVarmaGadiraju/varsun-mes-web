@@ -47,22 +47,22 @@ function StockEntryForm() {
 	const queryDeviceId = searchParams?.get("deviceId") ?? "";
 	const queryDate = searchParams?.get("date") ?? "";
 
-	const { addOrder, getOrderById, updateOrder, stockDevices, setStockDevices, stockOrders } = useData();
+	const { addOrder, getOrderById, updateOrder, globalDevices, setGlobalDevices, globalAssignments, setGlobalAssignments } = useData();
 
 	const lhtClusterId = process.env.NEXT_PUBLIC_LHT_CLUSTER_ID ?? "";
 	const lhtAccountId = process.env.NEXT_PUBLIC_LHT_ACCOUNT_ID ?? "";
 	const lhtApplicationId = process.env.NEXT_PUBLIC_APPLICATION_ID ?? "";
 	const lighthouseEnabled = Boolean(lhtClusterId && lhtAccountId && lhtApplicationId);
 
-	// 1. Try finding in loaded stockOrders context first (Live Data)
-	const cachedOrder = stockOrders?.find((o) => o.id === orderId || o.lhtGroupId === orderId);
+	// 1. Try finding in loaded globalAssignments context first (Live Data)
+	const cachedOrder = globalAssignments?.find((o) => o.id === orderId || o.lhtGroupId === orderId);
 	// 2. Fallback to local storage logic
 	const localOrder = getOrderById(orderId);
 
 	const orderFromContext = cachedOrder || localOrder;
 
 	const [resolvedOrder, setResolvedOrder] = useState<Order | null>(null);
-	const [devices, setDevices] = useState<DeviceSummary[]>(stockDevices);
+	const [devices, setDevices] = useState<DeviceSummary[]>(globalDevices);
 	const [isLoading, setIsLoading] = useState(true);
 	const [isError, setIsError] = useState(false);
 
@@ -177,7 +177,7 @@ function StockEntryForm() {
 					deviceList = await fetchDeviceList({ clusterId: lhtClusterId });
 					if (cancelled) return;
 					setDevices(deviceList);
-					setStockDevices(deviceList);
+					setGlobalDevices(deviceList);
 				}
 
 				// 2. Optimization: If we found it in stockOrders context, use it directly
@@ -501,6 +501,28 @@ function StockEntryForm() {
 						setEventGroupId(newGroupId);
 						setEventItemId(newItemId);
 						setItemCategory("COMPLETED");
+
+						// Optimistic Global Update (Create)
+						setGlobalAssignments((prev) => {
+							if (!prev) return prev;
+							return prev.map((a) => {
+								if (a.id === orderId || a.lhtGroupId === orderId) {
+									return {
+										...a,
+										status: "COMPLETED",
+										actualOutput,
+										toolChanges,
+										rejects,
+										actualStartTime,
+										actualEndTime,
+										remarks,
+										lhtGroupId: newGroupId,
+										lhtItemId: newItemId,
+									};
+								}
+								return a;
+							});
+						});
 					}
 				} else {
 					// COMPLETED: Update existing item in the existing group
@@ -538,6 +560,26 @@ function StockEntryForm() {
 								},
 							},
 						],
+					});
+
+					// Optimistic Global Update (Update)
+					setGlobalAssignments((prev) => {
+						if (!prev) return prev;
+						return prev.map((a) => {
+							if (a.id === orderId || a.lhtGroupId === orderId) {
+								return {
+									...a,
+									status: "COMPLETED",
+									actualOutput,
+									toolChanges,
+									rejects,
+									actualStartTime,
+									actualEndTime,
+									remarks,
+								};
+							}
+							return a;
+						});
 					});
 				}
 			} catch (e) {

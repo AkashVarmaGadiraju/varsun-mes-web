@@ -41,12 +41,12 @@ export default function PlanningPage() {
 		orders,
 		currentDate,
 		deleteOrder,
-		planningAssignments,
-		setPlanningAssignments,
-		planningDevices,
-		setPlanningDevices,
-		planningDataDate,
-		setPlanningDataDate,
+		globalAssignments,
+		setGlobalAssignments,
+		globalDevices,
+		setGlobalDevices,
+		globalDataDate,
+		setGlobalDataDate,
 	} = useData();
 
 	const [searchQuery, setSearchQuery] = useState("");
@@ -62,6 +62,7 @@ export default function PlanningPage() {
 	// Local loading state just for the initial fetch trigger visual
 	const [isLoading, setIsLoading] = useState(false);
 	const [isError, setIsError] = useState(false);
+	const deviceFetchRef = React.useRef(false);
 
 	const lhtClusterId = process.env.NEXT_PUBLIC_LHT_CLUSTER_ID;
 	const lhtAccountId = process.env.NEXT_PUBLIC_LHT_ACCOUNT_ID;
@@ -104,14 +105,18 @@ export default function PlanningPage() {
 		if (!lighthouseEnabled) return;
 		if (!lhtClusterId) return;
 		// If we already have devices in context, don't refetch
-		if (planningDevices.length) return;
+		if (globalDevices.length) return;
+		if (deviceFetchRef.current) return;
+		deviceFetchRef.current = true;
+
 		fetchDeviceList({ clusterId: lhtClusterId })
-			.then((result) => setPlanningDevices(result))
+			.then((result) => setGlobalDevices(result))
 			.catch((error) => {
 				console.error(error);
-				toast.error("Failed to load devices");
+				toast.error("Failed to load orders");
+				setIsError(true);
 			});
-	}, [planningDevices.length, lighthouseEnabled, lhtClusterId, setPlanningDevices]);
+	}, [globalDevices.length, lighthouseEnabled, lhtClusterId, setGlobalDevices]);
 
 	// Reset error when date changes
 	useEffect(() => {
@@ -125,7 +130,7 @@ export default function PlanningPage() {
 		}
 
 		// Wait for devices to be loaded before fetching assignments to avoid ID flash
-		if (lighthouseEnabled && !planningDevices.length) {
+		if (lighthouseEnabled && !globalDevices.length) {
 			return;
 		}
 
@@ -133,15 +138,13 @@ export default function PlanningPage() {
 
 		// Check if data is already loaded for this date
 		// Check if data is already loaded for this date
-		if (planningDataDate === currentDate && planningAssignments) {
+		if (globalDataDate === currentDate && globalAssignments) {
 			return;
 		}
 
 		// Allow UI to show previous data while loading? No, user wants correct data.
 		// If we switched date, we should probably show loader.
-		// But if we switch tabs, planningDataDate matches.
-
-		setIsLoading(true);
+		// But if we switch tabs, globalDataDate matches.
 
 		setIsLoading(true);
 
@@ -152,16 +155,21 @@ export default function PlanningPage() {
 		end.setDate(end.getDate() + 1);
 		end.setHours(23, 59, 59, 999);
 
+		let cancelled = false;
+
 		readDeviceStateEventGroupsWithItemsByCluster({
 			clusterId: lhtClusterId,
 			applicationId: lhtApplicationId,
 			account: { id: lhtAccountId },
 			query: { rangeStart: start.toISOString(), rangeEnd: end.toISOString() },
-			deviceId: selectedDeviceId !== "ALL" ? selectedDeviceId : undefined,
+			// Fetch ALL devices now, filter locally if needed.
+			deviceId: undefined,
 		})
 			.then((groupsUnknown: unknown) => {
+				if (cancelled) return;
 				const groups: ApiEventGroup[] = Array.isArray(groupsUnknown) ? (groupsUnknown as ApiEventGroup[]) : [];
 				const mapped: Assignment[] = groups.flatMap((group) => {
+					// ... mapping logic remains the same ...
 					const rangeStart = typeof group?.rangeStart === "string" ? group.rangeStart : null;
 					const rangeEnd = typeof group?.rangeEnd === "string" ? group.rangeEnd : null;
 					const groupLocalDate = rangeStart ? toLocalYYYYMMDD(rangeStart) : currentDate;
@@ -175,7 +183,7 @@ export default function PlanningPage() {
 					const deviceId = typeof group?.deviceId === "string" ? group.deviceId : "";
 					const machineName = (() => {
 						if (!deviceId) return "Unknown Device";
-						const device = planningDevices.find((d) => d.id === deviceId);
+						const device = globalDevices.find((d) => d.id === deviceId);
 						if (!device) return deviceId;
 						const label = deviceLabel(device);
 						return label && label !== "Unknown Device" ? label : deviceId;
@@ -221,34 +229,41 @@ export default function PlanningPage() {
 					});
 				});
 
-				setPlanningAssignments(mapped);
-				setPlanningDataDate(currentDate);
+				setGlobalAssignments(mapped);
+				setGlobalDataDate(currentDate);
 			})
 			.catch((error) => {
+				if (cancelled) return;
 				console.error(error);
-				setPlanningAssignments([]);
+				setGlobalAssignments([]);
 				setIsError(true);
 			})
-			.finally(() => setIsLoading(false));
+			.finally(() => {
+				if (!cancelled) setIsLoading(false);
+			});
+
+		return () => {
+			cancelled = true;
+		};
 	}, [
 		isError,
 		currentDate,
-		planningDevices,
+		globalDevices,
 		lighthouseEnabled,
 		lhtAccountId,
 		lhtApplicationId,
 		lhtClusterId,
 		selectedDeviceId,
-		planningAssignments,
-		setPlanningAssignments,
-		planningDataDate,
-		setPlanningDataDate,
+		globalAssignments,
+		setGlobalAssignments,
+		globalDataDate,
+		setGlobalDataDate,
 	]);
 
 	const sourceAssignments: Assignment[] = useMemo(() => {
-		if (lighthouseEnabled) return planningAssignments ?? [];
+		if (lighthouseEnabled) return globalAssignments ?? [];
 		return orders.map((o) => ({ ...o })) as Assignment[];
-	}, [planningAssignments, lighthouseEnabled, orders]);
+	}, [globalAssignments, lighthouseEnabled, orders]);
 
 	// Filter Logic
 	const filteredAssignments = sourceAssignments.filter((item) => {
@@ -293,7 +308,7 @@ export default function PlanningPage() {
 				}
 				toast.success(`Deleted ${deletions.length} items`);
 				// Optimistic update: remove deleted items from state
-				setPlanningAssignments((prev) => {
+				setGlobalAssignments((prev) => {
 					if (!prev) return null;
 					return prev.filter((a) => !selectedIds.includes(selectionKey(a)));
 				});
@@ -398,7 +413,10 @@ export default function PlanningPage() {
 							}
 						/>
 					</div>
-				) : isLoading || planningDataDate !== currentDate || (lighthouseEnabled && !planningDevices.length) ? (
+				) : isLoading ||
+				  (lighthouseEnabled && globalAssignments === null) ||
+				  globalDataDate !== currentDate ||
+				  (lighthouseEnabled && !globalDevices.length) ? (
 					<div className="flex-1 flex flex-col justify-center">
 						<Loader />
 					</div>

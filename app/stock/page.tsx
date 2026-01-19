@@ -20,7 +20,8 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export default function StockPage() {
-	const { orders, currentDate, stockOrders, setStockOrders, stockDevices, setStockDevices, stockDataDate, setStockDataDate } = useData();
+	const { orders, currentDate, globalAssignments, setGlobalAssignments, globalDevices, setGlobalDevices, globalDataDate, setGlobalDataDate } =
+		useData();
 	const [searchQuery, setSearchQuery] = useState("");
 	const [filterStatus, setFilterStatus] = useState<"All" | "Planned" | "Completed">("All");
 	const [showFilters, setShowFilters] = useState(false);
@@ -28,6 +29,7 @@ export default function StockPage() {
 	// Local loading state just for the initial fetch trigger visual
 	const [isLoading, setIsLoading] = useState(false);
 	const [isError, setIsError] = useState(false);
+	const deviceFetchRef = React.useRef(false);
 
 	const lhtClusterId = process.env.NEXT_PUBLIC_LHT_CLUSTER_ID;
 	const lhtAccountId = process.env.NEXT_PUBLIC_LHT_ACCOUNT_ID;
@@ -64,11 +66,17 @@ export default function StockPage() {
 	useEffect(() => {
 		if (!lighthouseEnabled || !lhtClusterId) return;
 		// If we already have devices in context, don't refetch
-		if (stockDevices.length) return;
+		if (globalDevices.length) return;
+		if (deviceFetchRef.current) return;
+		deviceFetchRef.current = true;
+
 		fetchDeviceList({ clusterId: lhtClusterId })
-			.then((result) => setStockDevices(result))
-			.catch((error) => console.error(error));
-	}, [stockDevices.length, lighthouseEnabled, lhtClusterId, setStockDevices]);
+			.then((result) => setGlobalDevices(result))
+			.catch((error) => {
+				console.error(error);
+				setIsError(true);
+			});
+	}, [globalDevices.length, lighthouseEnabled, lhtClusterId, setGlobalDevices]);
 
 	// Reset error when date changes
 	useEffect(() => {
@@ -79,12 +87,12 @@ export default function StockPage() {
 		if (!lighthouseEnabled || !lhtClusterId || !lhtAccountId) return;
 
 		// Wait for devices to be loaded before fetching assignments to avoid ID flash
-		if (lighthouseEnabled && !stockDevices.length) {
+		if (lighthouseEnabled && !globalDevices.length) {
 			return;
 		}
 
 		// Check if data is already loaded for this date
-		if (stockDataDate === currentDate && stockOrders) {
+		if (globalDataDate === currentDate && globalAssignments) {
 			return;
 		}
 
@@ -130,7 +138,7 @@ export default function StockPage() {
 					const deviceId = typeof group?.deviceId === "string" ? group.deviceId : "";
 					const machineName = (() => {
 						if (!deviceId) return "Unknown Device";
-						const device = stockDevices.find((d) => d.id === deviceId);
+						const device = globalDevices.find((d) => d.id === deviceId);
 						if (!device) return deviceId;
 						const label = deviceLabel(device);
 						return label && label !== "Unknown Device" ? label : deviceId;
@@ -148,6 +156,7 @@ export default function StockPage() {
 						const category = typeof item?.category === "string" ? String(item.category).toUpperCase() : "";
 						const status: Order["status"] = category === "COMPLETED" ? "COMPLETED" : "PLANNED";
 						const groupId = String(group?.id ?? workOrder);
+						const itemId = String(item?.id ?? "");
 
 						return [
 							{
@@ -168,34 +177,38 @@ export default function StockPage() {
 								status,
 								lhtDeviceId: deviceId || undefined,
 								lhtGroupId: groupId,
+								lhtItemId: itemId,
 							},
 						];
 					});
 				});
-				setStockOrders(mapped);
-				setStockDataDate(currentDate);
+				setGlobalAssignments(mapped as any); // Casting since Order vs Assignment might have slight diffs but they are compatible
+				setGlobalDataDate(currentDate);
 			})
 			.catch((error) => {
 				console.error(error);
-				setStockOrders([]);
+				setGlobalAssignments([]);
 				setIsError(true);
 			})
 			.finally(() => setIsLoading(false));
 	}, [
 		currentDate,
-		stockDevices,
+		globalDevices,
 		lighthouseEnabled,
 		lhtAccountId,
 		lhtApplicationId,
 		lhtClusterId,
-		stockOrders,
-		setStockOrders,
-		setStockDataDate,
-		stockDataDate,
+		globalAssignments,
+		setGlobalAssignments,
+		setGlobalDataDate,
+		globalDataDate,
 		isError,
 	]);
 
-	const sourceOrders = useMemo(() => (lighthouseEnabled ? (stockOrders ?? []) : orders), [lighthouseEnabled, orders, stockOrders]);
+	const sourceOrders = useMemo(
+		() => (lighthouseEnabled ? ((globalAssignments as any as Order[]) ?? []) : orders),
+		[lighthouseEnabled, orders, globalAssignments],
+	);
 
 	// Filter Logic
 	const filteredOrders = sourceOrders.filter((order) => {
@@ -274,7 +287,10 @@ export default function StockPage() {
 							}
 						/>
 					</div>
-				) : isLoading || stockDataDate !== currentDate || (lighthouseEnabled && !stockDevices.length) ? (
+				) : isLoading ||
+				  (lighthouseEnabled && globalAssignments === null) ||
+				  globalDataDate !== currentDate ||
+				  (lighthouseEnabled && !globalDevices.length) ? (
 					<div className="flex-1 flex flex-col justify-center select-none min-h-[50vh]">
 						<Loader />
 					</div>

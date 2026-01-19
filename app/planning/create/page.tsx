@@ -29,14 +29,14 @@ function AssignmentForm() {
 		currentDate,
 		getOrderById,
 		orders,
-		planningAssignments,
-		planningDataDate,
+		globalAssignments,
+		globalDataDate,
 		setCurrentDate,
-		setPlanningAssignments,
-		setPlanningDataDate,
+		setGlobalAssignments,
+		setGlobalDataDate,
 		updateOrder,
-		planningDevices,
-		setPlanningDevices,
+		globalDevices,
+		setGlobalDevices,
 	} = useData();
 
 	const orderId = searchParams.get("id");
@@ -48,7 +48,7 @@ function AssignmentForm() {
 	const lhtAccountId = process.env.NEXT_PUBLIC_LHT_ACCOUNT_ID ?? "";
 	const lhtApplicationId = process.env.NEXT_PUBLIC_APPLICATION_ID ?? "";
 
-	const [devices, setDevices] = useState<DeviceSummary[]>(planningDevices);
+	const [devices, setDevices] = useState<DeviceSummary[]>(globalDevices);
 	const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
 	const [isLoading, setIsLoading] = useState(true);
 	const [isError, setIsError] = useState(false);
@@ -140,8 +140,8 @@ function AssignmentForm() {
 	};
 
 	const findLocalGroupId = () => {
-		if (!planningAssignments || planningDataDate !== date) return undefined;
-		const match = planningAssignments.find(
+		if (!globalAssignments || globalDataDate !== date) return undefined;
+		const match = globalAssignments.find(
 			(item) => item.lhtDeviceId === selectedDeviceId && item.shift === shift && item.date === date && item.lhtGroupId,
 		);
 		if (!match?.lhtGroupId) return undefined;
@@ -165,7 +165,7 @@ function AssignmentForm() {
 					deviceList = await fetchDeviceList({ clusterId: lhtClusterId });
 					if (cancelled) return;
 					setDevices(deviceList);
-					setPlanningDevices(deviceList);
+					setGlobalDevices(deviceList);
 				}
 
 				// 2. Handle Create Mode (Default Selection) vs Edit Mode (Load Order)
@@ -190,7 +190,7 @@ function AssignmentForm() {
 
 				// --- EDIT MODE ---
 				// 1. Try finding in loaded assignments context first (Live Data)
-				const cached = planningAssignments?.find((p) => p.id === orderId || p.lhtGroupId === orderId);
+				const cached = globalAssignments?.find((p) => p.id === orderId || p.lhtGroupId === orderId);
 				if (cached) {
 					setMachine(cached.machine);
 					setOperator(cached.operator);
@@ -637,7 +637,7 @@ function AssignmentForm() {
 				...orderData,
 				lhtItemId,
 			};
-			setPlanningAssignments((prev) => {
+			setGlobalAssignments((prev) => {
 				const base = prev ? [...prev] : [];
 				const filtered = base.filter(
 					(item) =>
@@ -647,7 +647,7 @@ function AssignmentForm() {
 				);
 				return [assignment, ...filtered];
 			});
-			setPlanningDataDate(date);
+			setGlobalDataDate(date);
 		}
 
 		// Store locally keyed by Work Order id.
@@ -753,6 +753,11 @@ function AssignmentForm() {
 		[devices],
 	);
 
+	const queueSource = useMemo(() => {
+		if (globalAssignments && globalAssignments.length > 0) return globalAssignments;
+		return orders;
+	}, [globalAssignments, orders]);
+
 	return (
 		<div className="flex flex-col min-h-screen bg-background-dashboard font-display">
 			<header className="sticky top-0 z-50 bg-white border-b border-gray-200 h-(--header-height) px-4 py-2">
@@ -838,49 +843,53 @@ function AssignmentForm() {
 									Planned Queue <span className="text-gray-400 normal-case tracking-normal">({machine.split(" ")[0]})</span>
 								</h3>
 								<span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded">
-									{orders.filter((o) => o.machine === machine && o.date === date && o.status !== "COMPLETED").length} Tasks
+									{queueSource.filter((o) => o.machine === machine && o.date === date && o.status !== "COMPLETED").length} Tasks
 								</span>
 							</div>
 							<div className="space-y-2">
-								{orders
+								{queueSource
 									.filter((o) => o.machine === machine && o.date === date && o.status !== "COMPLETED")
 									.sort((a, b) => a.startTime.localeCompare(b.startTime))
-									.map((order) => (
-										<div key={order.id} className="bg-white border border-gray-100 p-3 rounded-lg flex items-center gap-3">
-											<div className="size-10 bg-gray-100 rounded flex items-center justify-center shrink-0 text-gray-400">
-												<span className="material-symbols-outlined text-xl">
-													{order.status === "ACTIVE"
-														? "play_circle"
-														: order.status === "COMPLETED"
-															? "check_circle"
-															: "schedule"}
-												</span>
-											</div>
-											<div className="flex-1 min-w-0">
-												<div className="flex justify-between items-start">
-													<p className="font-bold text-sm truncate text-gray-800">
-														{order.id} • {order.partNumber}
-													</p>
-													<span
-														className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-															order.status === "ACTIVE"
-																? "text-green-600 bg-green-50"
-																: order.status === "COMPLETED"
-																	? "text-blue-600 bg-blue-50"
-																	: "text-gray-400 bg-gray-50"
-														}`}
-													>
-														{order.status}
+									.map((order) => {
+										// Compatible ID for display
+										const displayId = (order as any).workOrder ?? order.id;
+										return (
+											<div key={order.id} className="bg-white border border-gray-100 p-3 rounded-lg flex items-center gap-3">
+												<div className="size-10 bg-gray-100 rounded flex items-center justify-center shrink-0 text-gray-400">
+													<span className="material-symbols-outlined text-xl">
+														{order.status === "ACTIVE"
+															? "play_circle"
+															: order.status === "COMPLETED"
+																? "check_circle"
+																: "schedule"}
 													</span>
 												</div>
-												<p className="text-[11px] text-gray-500 font-medium">
-													Op {order.opNumber} • {order.operator.split(" ")[0]} • {order.shift}
-												</p>
+												<div className="flex-1 min-w-0">
+													<div className="flex justify-between items-start">
+														<p className="font-bold text-sm truncate text-gray-800">
+															{displayId} • {order.partNumber}
+														</p>
+														<span
+															className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+																order.status === "ACTIVE"
+																	? "text-green-600 bg-green-50"
+																	: order.status === "COMPLETED"
+																		? "text-blue-600 bg-blue-50"
+																		: "text-gray-400 bg-gray-50"
+															}`}
+														>
+															{order.status}
+														</span>
+													</div>
+													<p className="text-[11px] text-gray-500 font-medium">
+														Op {order.opNumber} • {order.operator.split(" ")[0]} • {order.shift}
+													</p>
+												</div>
 											</div>
-										</div>
-									))}
+										);
+									})}
 
-								{orders.filter((o) => o.machine === machine && o.date === date && o.status !== "COMPLETED").length === 0 && (
+								{queueSource.filter((o) => o.machine === machine && o.date === date && o.status !== "COMPLETED").length === 0 && (
 									<div className="text-center py-6 text-gray-400 text-xs italic bg-gray-50/50 rounded-lg border border-dashed border-gray-200">
 										No active queue for {machine.split(" ")[0]} on this date.
 									</div>
