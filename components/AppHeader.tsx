@@ -46,7 +46,7 @@ export default function AppHeader({ title, subtitle, showDateNavigator = false, 
 				</div>
 			</header>
 			{showDateNavigator && (
-				<div className="animate-in slide-in-from-top-1 fade-in duration-200 bg-[#eceff0] py-2 px-4">
+				<div className="relative z-30 animate-in slide-in-from-top-1 fade-in duration-200 bg-[#eceff0] py-2 px-4">
 					<DateNavigator
 						currentDate={currentDate}
 						setCurrentDate={setCurrentDate}

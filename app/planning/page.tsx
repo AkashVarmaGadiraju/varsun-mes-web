@@ -9,19 +9,15 @@ import { twMerge } from "tailwind-merge";
 import AppHeader from "@/components/AppHeader";
 import SearchFilterBar from "@/components/SearchFilterBar";
 import EmptyState from "@/components/EmptyState";
+import Loader from "@/components/Loader";
+import Select from "@/components/ui/Select";
 import { useData } from "@/context/DataContext";
-import type { Order } from "@/lib/types";
+import type { Order, Assignment } from "@/lib/types";
 import { deleteDeviceStateEventGroupItems, fetchDeviceList, readDeviceStateEventGroupsWithItemsByCluster, type DeviceSummary } from "@/utils/scripts";
 
 function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
 }
-
-type Assignment = Order & {
-	workOrder?: string;
-	// Non-Order fields used for delete selection + API calls
-	lhtItemId?: string;
-};
 
 type ApiEventItem = {
 	id?: string;
@@ -41,7 +37,17 @@ type ApiEventGroup = {
 };
 
 export default function PlanningPage() {
-	const { orders, currentDate, deleteOrder } = useData();
+	const {
+		orders,
+		currentDate,
+		deleteOrder,
+		planningAssignments,
+		setPlanningAssignments,
+		planningDevices,
+		setPlanningDevices,
+		planningDataDate,
+		setPlanningDataDate,
+	} = useData();
 
 	const [searchQuery, setSearchQuery] = useState("");
 	const [filterStatus, setFilterStatus] = useState<"All" | "PLANNED">("All");
@@ -51,9 +57,10 @@ export default function PlanningPage() {
 	const [selectedIds, setSelectedIds] = useState<string[]>([]);
 	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-	const [devices, setDevices] = useState<DeviceSummary[]>([]);
 	const [selectedDeviceId] = useState<string>("ALL");
-	const [assignments, setAssignments] = useState<Assignment[] | null>(null);
+
+	// Local loading state just for the initial fetch trigger visual
+	const [isLoading, setIsLoading] = useState(false);
 
 	const lhtClusterId = process.env.NEXT_PUBLIC_LHT_CLUSTER_ID;
 	const lhtAccountId = process.env.NEXT_PUBLIC_LHT_ACCOUNT_ID;
@@ -95,20 +102,40 @@ export default function PlanningPage() {
 	useEffect(() => {
 		if (!lighthouseEnabled) return;
 		if (!lhtClusterId) return;
-		if (devices.length) return;
+		// If we already have devices in context, don't refetch
+		if (planningDevices.length) return;
 		fetchDeviceList({ clusterId: lhtClusterId })
-			.then((result) => setDevices(result))
+			.then((result) => setPlanningDevices(result))
 			.catch((error) => {
 				console.error(error);
 				toast.error("Failed to load devices");
 			});
-	}, [devices.length, lighthouseEnabled, lhtClusterId]);
+	}, [planningDevices.length, lighthouseEnabled, lhtClusterId, setPlanningDevices]);
 
 	useEffect(() => {
 		if (!lighthouseEnabled || !lhtClusterId || !lhtAccountId) {
-			setAssignments(null);
+			// Only clear if we really need to, but keeping it persistent is better.
 			return;
 		}
+
+		// Wait for devices to be loaded before fetching assignments to avoid ID flash
+		if (lighthouseEnabled && !planningDevices.length) {
+			return;
+		}
+
+		// Check if data is already loaded for this date
+		// Check if data is already loaded for this date
+		if (planningDataDate === currentDate && planningAssignments) {
+			return;
+		}
+
+		// Allow UI to show previous data while loading? No, user wants correct data.
+		// If we switched date, we should probably show loader.
+		// But if we switch tabs, planningDataDate matches.
+
+		setIsLoading(true);
+
+		setIsLoading(true);
 
 		const base = new Date(currentDate);
 		const start = new Date(base);
@@ -140,7 +167,7 @@ export default function PlanningPage() {
 					const deviceId = typeof group?.deviceId === "string" ? group.deviceId : "";
 					const machineName = (() => {
 						if (!deviceId) return "Unknown Device";
-						const device = devices.find((d) => d.id === deviceId);
+						const device = planningDevices.find((d) => d.id === deviceId);
 						if (!device) return deviceId;
 						const label = deviceLabel(device);
 						return label && label !== "Unknown Device" ? label : deviceId;
@@ -186,19 +213,33 @@ export default function PlanningPage() {
 					});
 				});
 
-				setAssignments(mapped);
+				setPlanningAssignments(mapped);
+				setPlanningDataDate(currentDate);
 			})
 			.catch((error) => {
 				console.error(error);
 				toast.error("Failed to load assignments");
-				setAssignments([]);
-			});
-	}, [currentDate, devices, lighthouseEnabled, lhtAccountId, lhtApplicationId, lhtClusterId, selectedDeviceId]);
+				setPlanningAssignments([]);
+			})
+			.finally(() => setIsLoading(false));
+	}, [
+		currentDate,
+		planningDevices,
+		lighthouseEnabled,
+		lhtAccountId,
+		lhtApplicationId,
+		lhtClusterId,
+		selectedDeviceId,
+		planningAssignments,
+		setPlanningAssignments,
+		planningDataDate,
+		setPlanningDataDate,
+	]);
 
 	const sourceAssignments: Assignment[] = useMemo(() => {
-		if (lighthouseEnabled) return assignments ?? [];
+		if (lighthouseEnabled) return planningAssignments ?? [];
 		return orders.map((o) => ({ ...o })) as Assignment[];
-	}, [assignments, lighthouseEnabled, orders]);
+	}, [planningAssignments, lighthouseEnabled, orders]);
 
 	// Filter Logic
 	const filteredAssignments = sourceAssignments.filter((item) => {
@@ -243,7 +284,7 @@ export default function PlanningPage() {
 				}
 				toast.success(`Deleted ${deletions.length} items`);
 				// Optimistic update: remove deleted items from state
-				setAssignments((prev) => {
+				setPlanningAssignments((prev) => {
 					if (!prev) return null;
 					return prev.filter((a) => !selectedIds.includes(selectionKey(a)));
 				});
@@ -296,10 +337,10 @@ export default function PlanningPage() {
 										key={status}
 										onClick={() => setFilterStatus(status as "All" | "PLANNED")}
 										className={cn(
-											"planning-filter-btn",
+											"h-9 px-4 rounded-lg text-xs font-bold transition-all duration-200 uppercase tracking-wide border",
 											filterStatus === status
-												? "bg-primary border-primary text-white"
-												: "bg-white border-card-border text-primary/70 hover:text-primary",
+												? "bg-primary border-primary text-white shadow-md shadow-primary/20"
+												: "bg-white border-gray-200 text-gray-500 hover:text-primary hover:border-primary/30 hover:bg-gray-50",
 										)}
 									>
 										{status}
@@ -310,21 +351,15 @@ export default function PlanningPage() {
 
 						<div>
 							<p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1.5 ml-1">Machine</p>
-							<div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-								{machineOptions.map((machine) => (
-									<button
-										key={machine}
-										onClick={() => setFilterMachine(machine)}
-										className={cn(
-											"planning-filter-btn",
-											filterMachine === machine
-												? "bg-primary border-primary text-white"
-												: "bg-white border-card-border text-primary/70 hover:text-primary",
-										)}
-									>
-										{machine}
-									</button>
-								))}
+							<div className="relative">
+								<Select
+									label="Machine"
+									value={filterMachine}
+									onChange={setFilterMachine}
+									options={machineOptions}
+									placeholder="Select Machine"
+									className="w-full"
+								/>
 							</div>
 						</div>
 					</div>
@@ -332,86 +367,97 @@ export default function PlanningPage() {
 			</div>
 
 			<main className="px-4 space-y-2 flex-1 flex flex-col">
-				{filteredAssignments.map((item) => {
-					const key = selectionKey(item);
-					const displayWorkOrder = item.workOrder || item.id;
-					// Use workOrder for routing if available, otherwise fallback to group ID
-					const routeId = item.workOrder || item.id;
-					const href = `/planning/create?id=${encodeURIComponent(routeId)}&deviceId=${encodeURIComponent(item.lhtDeviceId ?? "ALL")}&date=${encodeURIComponent(currentDate)}`;
-					return (
-						<Link
-							key={key}
-							href={isDeleteMode ? "#" : href}
-							className={cn(
-								"planning-card",
-								isDeleteMode ? "cursor-default" : "active:scale-[0.99] hover:border-card-border border-card-border",
-								selectedIds.includes(key) ? "planning-card-selected" : "border-card-border",
-							)}
-							onClick={(e) => {
-								if (isDeleteMode) {
-									e.preventDefault();
-									toggleSelection(item);
-								}
-							}}
-						>
-							<div className="flex justify-between items-start gap-4">
-								<div className="flex flex-col gap-0.5 flex-1">
-									<div className="flex items-center gap-2">
-										<h3 className="list-title">{item.machine}</h3>
-										<div
-											className={cn(
-												"size-2 rounded-full",
-												item.status === "PLANNED"
-													? "bg-status-planned"
-													: item.status === "COMPLETED"
-														? "bg-status-completed"
-														: "bg-status-default",
-											)}
-										></div>
-									</div>
+				{/* Show loader if we are fetching new data (date mismatch) OR if devices not loaded */}
+				{isLoading || planningDataDate !== currentDate || (lighthouseEnabled && !planningDevices.length) ? (
+					<div className="flex-1 flex flex-col justify-center">
+						<Loader />
+					</div>
+				) : (
+					<>
+						{filteredAssignments.map((item) => {
+							const key = selectionKey(item);
+							const displayWorkOrder = item.workOrder || item.id;
+							// Use workOrder for routing if available, otherwise fallback to group ID
+							const routeId = item.workOrder || item.id;
+							const href = `/planning/create?id=${encodeURIComponent(routeId)}&deviceId=${encodeURIComponent(item.lhtDeviceId ?? "ALL")}&date=${encodeURIComponent(currentDate)}`;
+							return (
+								<Link
+									key={key}
+									href={isDeleteMode ? "#" : href}
+									className={cn(
+										"planning-card",
+										isDeleteMode ? "cursor-default" : "active:scale-[0.99] hover:border-card-border border-card-border",
+										selectedIds.includes(key) ? "planning-card-selected" : "border-card-border",
+									)}
+									onClick={(e) => {
+										if (isDeleteMode) {
+											e.preventDefault();
+											toggleSelection(item);
+										}
+									}}
+								>
+									<div className="flex justify-between items-start gap-4">
+										<div className="flex flex-col gap-0.5 flex-1">
+											<div className="flex items-center gap-2">
+												<h3 className="list-title">{item.machine}</h3>
+												<div
+													className={cn(
+														"size-2 rounded-full",
+														item.status === "PLANNED"
+															? "bg-status-planned"
+															: item.status === "COMPLETED"
+																? "bg-status-completed"
+																: "bg-status-default",
+													)}
+												></div>
+											</div>
 
-									<p className="list-subtext">
-										{item.partNumber} • {displayWorkOrder}
-									</p>
-									<p className="list-subtext">{item.operator}</p>
-								</div>
+											<p className="list-subtext">
+												{item.partNumber} • {displayWorkOrder}
+											</p>
+											<p className="list-subtext">{item.operator}</p>
+										</div>
 
-								<div className="list-metric-column">
-									{isDeleteMode ? (
-										<div
-											className={cn(
-												"size-6 rounded-full border-[1.5px] flex items-center justify-center transition-all",
-												selectedIds.includes(key) ? "border-destructive bg-destructive-bg" : "border-card-border bg-white",
-											)}
-										>
-											{selectedIds.includes(key) && (
-												<div className="size-3.5 rounded-full bg-destructive shadow-sm animate-in zoom-in-75 duration-200" />
+										<div className="list-metric-column">
+											{isDeleteMode ? (
+												<div
+													className={cn(
+														"size-6 rounded-full border-[1.5px] flex items-center justify-center transition-all",
+														selectedIds.includes(key)
+															? "border-destructive bg-destructive-bg"
+															: "border-card-border bg-white",
+													)}
+												>
+													{selectedIds.includes(key) && (
+														<div className="size-3.5 rounded-full bg-destructive shadow-sm animate-in zoom-in-75 duration-200" />
+													)}
+												</div>
+											) : (
+												<span className="list-tag text-primary bg-primary/10">
+													{item.startTime} - {item.endTime}
+												</span>
 											)}
 										</div>
-									) : (
-										<span className="list-tag text-primary bg-primary/10">
-											{item.startTime} - {item.endTime}
-										</span>
-									)}
-								</div>
-							</div>
-						</Link>
-					);
-				})}
+									</div>
+								</Link>
+							);
+						})}
 
-				{filteredAssignments.length === 0 && (
-					<div className="flex-1 flex flex-col items-center justify-center -mt-20">
-						<EmptyState
-							icon="event_busy"
-							title="No Plans Found"
-							description={
-								<span>
-									No assignments scheduled for <br />
-									<span className="text-primary font-bold mt-1 block">{formatDateForDisplay(currentDate)}</span>
-								</span>
-							}
-						/>
-					</div>
+						{filteredAssignments.length === 0 && (
+							<div className="flex-1 flex flex-col items-center justify-center -mt-20">
+								<EmptyState
+									icon="event_busy"
+									title="No Plans Found"
+									description={
+										<span>
+											No assignments scheduled for <br />
+											<span className="text-primary font-bold mt-1 block">{formatDateForDisplay(currentDate)}</span>
+										</span>
+									}
+								/>
+							</div>
+						)}
+					</>
 				)}
 			</main>
 

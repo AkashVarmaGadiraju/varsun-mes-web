@@ -6,6 +6,10 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import Link from "next/link";
 import { ReasonCodeSelect } from "@/components/ReasonCodeSelect";
+import { useData } from "@/context/DataContext";
+import { fetchDeviceList } from "@/utils/scripts";
+import AppHeader from "@/components/AppHeader";
+import Loader from "@/components/Loader";
 
 function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
@@ -111,6 +115,22 @@ export default function EventGroupingPage() {
 	const machineId = params?.id && typeof params.id === "string" ? decodeURIComponent(params.id) : "Unknown Machine";
 	const eventId = params?.eventId && typeof params.eventId === "string" ? decodeURIComponent(params.eventId) : "unknown";
 
+	const { eventsDevices, setEventsDevices } = useData();
+	const lhtClusterId = process.env.NEXT_PUBLIC_LHT_CLUSTER_ID ?? "";
+
+	// Fetch devices if not present
+	useEffect(() => {
+		if (!lhtClusterId) return;
+		if (eventsDevices.length > 0) return;
+
+		fetchDeviceList({ clusterId: lhtClusterId }).then(setEventsDevices).catch(console.error);
+	}, [lhtClusterId, eventsDevices.length, setEventsDevices]);
+
+	const machineName = React.useMemo(() => {
+		const device = eventsDevices.find((d) => d.id === machineId);
+		return device?.deviceName || machineId;
+	}, [eventsDevices, machineId]);
+
 	const [loading, setLoading] = useState(true);
 
 	// Form State
@@ -125,22 +145,17 @@ export default function EventGroupingPage() {
 
 	// Initialize Data
 	useEffect(() => {
-		// Simulate Network Delay
-		const timer = setTimeout(() => {
-			const data = getMockEventDetails(eventId, machineId);
-			setEventData(data);
+		const data = getMockEventDetails(eventId, machineId);
+		setEventData(data);
 
-			// Populate Form
-			setTitle(data.title);
-			setDescription(data.description);
-			setReason(data.reason);
-			setMetadata(data.metadata && data.metadata.length > 0 ? data.metadata : [{ key: "", value: "" }]);
-			setTags(data.tags);
+		// Populate Form
+		setTitle(data.title);
+		setDescription(data.description);
+		setReason(data.reason);
+		setMetadata(data.metadata && data.metadata.length > 0 ? data.metadata : [{ key: "", value: "" }]);
+		setTags(data.tags);
 
-			setLoading(false);
-		}, 300);
-
-		return () => clearTimeout(timer);
+		setLoading(false);
 	}, [eventId, machineId]);
 
 	// Handlers
@@ -187,21 +202,12 @@ export default function EventGroupingPage() {
 		router.back();
 	};
 
-	if (loading || !eventData) {
+	const isDeviceMapLoaded = !lhtClusterId || eventsDevices.length > 0;
+
+	if (loading || !eventData || !isDeviceMapLoaded) {
 		return (
 			<div className="flex bg-background-dashboard min-h-screen items-center justify-center">
-				<div className="flex flex-col items-center gap-3">
-					{/* CSS/SVG Spinner to avoid font loading delay glitches */}
-					<svg className="animate-spin h-8 w-8 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-						<circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-						<path
-							className="opacity-75"
-							fill="currentColor"
-							d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-						></path>
-					</svg>
-					<span className="text-xs font-bold text-slate-400 animate-pulse">Loading Event...</span>
-				</div>
+				<Loader />
 			</div>
 		);
 	}
@@ -209,12 +215,11 @@ export default function EventGroupingPage() {
 	return (
 		<div className="flex flex-col min-h-screen bg-background-dashboard font-display">
 			{/* Standard Context Header */}
-			<header className="sticky top-0 z-50 bg-white border-b border-gray-200 h-[var(--header-height)] px-4 py-2">
-				<div className="flex items-center justify-between h-full">
-					<div className="flex flex-col">
-						<h2 className="header-title">{machineId}</h2>
-						<p className="header-subtitle mt-0.5 uppercase block">Event Grouping</p>
-					</div>
+			<AppHeader
+				title={machineName}
+				subtitle="Event Grouping"
+				showDateNavigator={false}
+				rightElement={
 					<div className="flex items-center gap-3">
 						<button
 							onClick={() => router.back()}
@@ -230,10 +235,10 @@ export default function EventGroupingPage() {
 							SAVE
 						</button>
 					</div>
-				</div>
-			</header>
+				}
+			/>
 
-			<main className="!p-4 !space-y-6 !pb-24 max-w-md mx-auto w-full">
+			<main className="!py-4 !space-y-6 !pb-24 max-w-md mx-auto w-full">
 				{/* Event Details Form */}
 				<section className="bg-white !rounded-xl border border-gray-100 shadow-sm overflow-hidden">
 					<div className="bg-gray-50 !px-4 !py-2 border-b border-gray-100 flex justify-between items-center">

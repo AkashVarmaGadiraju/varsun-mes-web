@@ -8,6 +8,8 @@ import { twMerge } from "tailwind-merge";
 import AppHeader from "@/components/AppHeader";
 import SearchFilterBar from "@/components/SearchFilterBar";
 import EmptyState from "@/components/EmptyState";
+import Loader from "@/components/Loader";
+import Select from "@/components/ui/Select";
 import { useData } from "@/context/DataContext";
 import type { Order } from "@/lib/types";
 import { fetchDeviceList, readDeviceStateEventGroupsWithItemsByCluster, type DeviceSummary } from "@/utils/scripts";
@@ -18,21 +20,20 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export default function StockPage() {
-	const { orders, currentDate } = useData();
+	const { orders, currentDate, stockOrders, setStockOrders, stockDevices, setStockDevices, stockDataDate, setStockDataDate } = useData();
 	const [searchQuery, setSearchQuery] = useState("");
 	const [filterStatus, setFilterStatus] = useState<"All" | "Planned" | "Completed">("All");
 	const [showFilters, setShowFilters] = useState(false);
 
-	const [devices, setDevices] = useState<DeviceSummary[]>([]);
-	const [remoteOrders, setRemoteOrders] = useState<Order[] | null>(null);
+	// Local loading state just for the initial fetch trigger visual
+	const [isLoading, setIsLoading] = useState(false);
 
 	const lhtClusterId = process.env.NEXT_PUBLIC_LHT_CLUSTER_ID;
 	const lhtAccountId = process.env.NEXT_PUBLIC_LHT_ACCOUNT_ID;
 	const lhtApplicationId = process.env.NEXT_PUBLIC_APPLICATION_ID;
 	const lighthouseEnabled = Boolean(lhtClusterId && lhtAccountId && lhtApplicationId);
 
-	const deviceLabel = (device?: DeviceSummary) =>
-		device?.deviceName || device?.serialNumber || device?.foreignId || device?.id || "Unknown Device";
+	const deviceLabel = (device?: DeviceSummary) => device?.deviceName || device?.serialNumber || device?.foreignId || device?.id || "Unknown Device";
 
 	const formatTimeValue = (value?: string | Date) => {
 		if (!value) return "";
@@ -61,14 +62,27 @@ export default function StockPage() {
 
 	useEffect(() => {
 		if (!lighthouseEnabled || !lhtClusterId) return;
-		if (devices.length) return;
+		// If we already have devices in context, don't refetch
+		if (stockDevices.length) return;
 		fetchDeviceList({ clusterId: lhtClusterId })
-			.then((result) => setDevices(result))
+			.then((result) => setStockDevices(result))
 			.catch((error) => console.error(error));
-	}, [devices.length, lighthouseEnabled, lhtClusterId]);
+	}, [stockDevices.length, lighthouseEnabled, lhtClusterId, setStockDevices]);
 
 	useEffect(() => {
 		if (!lighthouseEnabled || !lhtClusterId || !lhtAccountId) return;
+
+		// Wait for devices to be loaded before fetching assignments to avoid ID flash
+		if (lighthouseEnabled && !stockDevices.length) {
+			return;
+		}
+
+		// Check if data is already loaded for this date
+		if (stockDataDate === currentDate && stockOrders) {
+			return;
+		}
+
+		setIsLoading(true);
 
 		const base = new Date(currentDate);
 		const start = new Date(base);
@@ -108,7 +122,7 @@ export default function StockPage() {
 					const deviceId = typeof group?.deviceId === "string" ? group.deviceId : "";
 					const machineName = (() => {
 						if (!deviceId) return "Unknown Device";
-						const device = devices.find((d) => d.id === deviceId);
+						const device = stockDevices.find((d) => d.id === deviceId);
 						if (!device) return deviceId;
 						const label = deviceLabel(device);
 						return label && label !== "Unknown Device" ? label : deviceId;
@@ -150,15 +164,28 @@ export default function StockPage() {
 						];
 					});
 				});
-				setRemoteOrders(mapped);
+				setStockOrders(mapped);
+				setStockDataDate(currentDate);
 			})
 			.catch((error) => {
 				console.error(error);
-				setRemoteOrders([]);
-			});
-	}, [currentDate, devices, lighthouseEnabled, lhtAccountId, lhtApplicationId, lhtClusterId]);
+				setStockOrders([]);
+			})
+			.finally(() => setIsLoading(false));
+	}, [
+		currentDate,
+		stockDevices,
+		lighthouseEnabled,
+		lhtAccountId,
+		lhtApplicationId,
+		lhtClusterId,
+		stockOrders,
+		setStockOrders,
+		setStockDataDate,
+		stockDataDate,
+	]);
 
-	const sourceOrders = useMemo(() => (lighthouseEnabled ? remoteOrders ?? [] : orders), [lighthouseEnabled, orders, remoteOrders]);
+	const sourceOrders = useMemo(() => (lighthouseEnabled ? (stockOrders ?? []) : orders), [lighthouseEnabled, orders, stockOrders]);
 
 	// Filter Logic
 	const filteredOrders = sourceOrders.filter((order) => {
@@ -196,15 +223,15 @@ export default function StockPage() {
 				{showFilters && (
 					<div className="mt-3 animate-in slide-in-from-top-1 fade-in duration-200">
 						<div className="flex gap-2 overflow-x-auto scrollbar-none">
-							{(['All', 'Planned', 'Completed'] as const).map(status => (
+							{(["All", "Planned", "Completed"] as const).map((status) => (
 								<button
 									key={status}
 									onClick={() => setFilterStatus(status)}
 									className={cn(
-										"px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors whitespace-nowrap",
+										"h-9 px-4 rounded-lg text-xs font-bold transition-all duration-200 uppercase tracking-wide border",
 										filterStatus === status
-											? "bg-primary border-primary text-white"
-											: "bg-white border-gray-200 text-gray-500"
+											? "bg-primary border-primary text-white shadow-md shadow-primary/20"
+											: "bg-white border-gray-200 text-gray-500 hover:text-primary hover:border-primary/30 hover:bg-gray-50",
 									)}
 								>
 									{status}
@@ -215,64 +242,77 @@ export default function StockPage() {
 				)}
 			</div>
 
-			<main className="px-4 space-y-2 ">
-				{filteredOrders.map((order) => {
-					const displayWorkOrder = (order as Order & { workOrder?: string }).workOrder || order.id;
-					const routeId = (order as Order & { workOrder?: string }).workOrder || order.id;
-					return (
-						<Link
-							key={order.id}
-							href={`/stock/${encodeURIComponent(routeId)}`}
-							className="list-card card-shadow active:scale-[0.99] transition-transform"
-						>
-							<div className="flex justify-between items-start gap-4">
-								{/* Left Column */}
-								<div className="flex flex-col gap-0.5 flex-1">
-									{/* Header: Machine + Status */}
-									<div className="flex items-center gap-2">
-										<h3 className="list-title">{order.machine}</h3>
-										<div className={cn(
-											"size-2 rounded-full",
-											order.status === 'PLANNED' ? "bg-status-planned" :
-												order.status === 'COMPLETED' ? "bg-status-completed" : "bg-status-default"
-										)}></div>
-									</div>
-
-									{/* Part Number • WO */}
-									<p className="list-subtext">
-										{order.partNumber} • {displayWorkOrder}
-									</p>
-
-									{/* Operator */}
-									<p className="list-subtext">{order.operator}</p>
-								</div>
-
-								{/* Right Column */}
-								<div className="list-metric-column">
-									{/* Shift Badge */}
-									<span className="list-tag text-primary bg-primary/10">
-										{order.startTime} - {order.endTime}
-									</span>
-								</div>
-							</div>
-						</Link>
-					);
-				})}
-
-				{/* Empty State */}
-				{filteredOrders.length === 0 && (
-					<div className="flex-1 flex flex-col items-center justify-center -mt-20">
-						<EmptyState
-							icon="inventory_2"
-							title="No Stock Found"
-							description={
-								<span>
-									No stock items found for <br />
-									<span className="font-bold text-gray-600">{formatDateForDisplay(currentDate)}</span>
-								</span>
-							}
-						/>
+			<main className="px-4 space-y-2 flex-1 flex flex-col">
+				{isLoading || stockDataDate !== currentDate || (lighthouseEnabled && !stockDevices.length) ? (
+					<div className="flex-1 flex flex-col justify-center select-none min-h-[50vh]">
+						<Loader />
 					</div>
+				) : (
+					<>
+						{filteredOrders.map((order) => {
+							const displayWorkOrder = (order as Order & { workOrder?: string }).workOrder || order.id;
+							const routeId = (order as Order & { workOrder?: string }).workOrder || order.id;
+							return (
+								<Link
+									key={order.id}
+									href={`/stock/${encodeURIComponent(routeId)}`}
+									className="list-card card-shadow active:scale-[0.99] transition-transform"
+								>
+									<div className="flex justify-between items-start gap-4">
+										{/* Left Column */}
+										<div className="flex flex-col gap-0.5 flex-1">
+											{/* Header: Machine + Status */}
+											<div className="flex items-center gap-2">
+												<h3 className="list-title">{order.machine}</h3>
+												<div
+													className={cn(
+														"size-2 rounded-full",
+														order.status === "PLANNED"
+															? "bg-status-planned"
+															: order.status === "COMPLETED"
+																? "bg-status-completed"
+																: "bg-status-default",
+													)}
+												></div>
+											</div>
+
+											{/* Part Number • WO */}
+											<p className="list-subtext">
+												{order.partNumber} • {displayWorkOrder}
+											</p>
+
+											{/* Operator */}
+											<p className="list-subtext">{order.operator}</p>
+										</div>
+
+										{/* Right Column */}
+										<div className="list-metric-column">
+											{/* Shift Badge */}
+											<span className="list-tag text-primary bg-primary/10">
+												{order.startTime} - {order.endTime}
+											</span>
+										</div>
+									</div>
+								</Link>
+							);
+						})}
+
+						{/* Empty State */}
+						{filteredOrders.length === 0 && (
+							<div className="flex-1 flex flex-col items-center justify-center -mt-20">
+								<EmptyState
+									icon="inventory_2"
+									title="No Stock Found"
+									description={
+										<span>
+											No stock items found for <br />
+											<span className="text-primary font-bold mt-1 block">{formatDateForDisplay(currentDate)}</span>
+										</span>
+									}
+								/>
+							</div>
+						)}
+					</>
 				)}
 			</main>
 		</div>

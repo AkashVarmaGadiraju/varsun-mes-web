@@ -10,13 +10,36 @@ import Link from "next/link";
 import { useData } from "@/context/DataContext";
 import AppHeader from "@/components/AppHeader";
 import SearchFilterBar from "@/components/SearchFilterBar";
+import Loader from "@/components/Loader";
+
+import { fetchDeviceList, type DeviceSummary } from "@/utils/scripts";
 
 export default function MachineTaggingPage() {
 	const router = useRouter();
 	const params = useParams();
-	const { currentDate, setCurrentDate } = useData();
+	const { currentDate, setCurrentDate, eventsDevices, setEventsDevices } = useData();
 	// decodeURIComponent in case ID has spaces or special chars
 	const machineId = typeof params.id === "string" ? decodeURIComponent(params.id) : "Unknown Machine";
+
+	const lhtClusterId = process.env.NEXT_PUBLIC_LHT_CLUSTER_ID ?? "";
+	const [isLoading, setIsLoading] = useState(!!lhtClusterId && eventsDevices.length === 0);
+
+	// Fetch devices if not present
+	React.useEffect(() => {
+		if (!lhtClusterId) return;
+		if (eventsDevices.length > 0) return;
+
+		setIsLoading(true);
+		fetchDeviceList({ clusterId: lhtClusterId })
+			.then(setEventsDevices)
+			.catch(console.error)
+			.finally(() => setIsLoading(false));
+	}, [lhtClusterId, eventsDevices.length, setEventsDevices]);
+
+	const machineName = React.useMemo(() => {
+		const device = eventsDevices.find((d) => d.id === machineId);
+		return device?.deviceName || machineId;
+	}, [eventsDevices, machineId]);
 
 	const [searchQuery, setSearchQuery] = useState("");
 	const [showFilters, setShowFilters] = useState(false);
@@ -56,6 +79,15 @@ export default function MachineTaggingPage() {
 		},
 	]);
 
+	// Ensure conditional return is AFTER all hooks
+	if (isLoading) {
+		return (
+			<div className="flex bg-background-dashboard min-h-screen items-center justify-center">
+				<Loader />
+			</div>
+		);
+	}
+
 	// Filter Logic
 	const filteredEvents = events.filter((e) => {
 		const isDateMatch = e.date === currentDate;
@@ -70,7 +102,7 @@ export default function MachineTaggingPage() {
 	return (
 		<div className="flex flex-col min-h-screen bg-background-dashboard font-display pb-24 text-slate-800">
 			<AppHeader
-				title={machineId}
+				title={machineName}
 				subtitle="DOWNTIME EVENTS"
 				showDateNavigator={true}
 				rightElement={
