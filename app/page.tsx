@@ -189,6 +189,8 @@ export default function Home() {
 								lhtDeviceId: deviceId || undefined,
 								lhtGroupId: groupId,
 								lhtItemId: itemId,
+								actualStartTime: String(metadata.actualStartTime ?? ""),
+								actualEndTime: String(metadata.actualEndTime ?? ""),
 							},
 						];
 					});
@@ -230,8 +232,13 @@ export default function Home() {
 	// Filter all orders by the global currentDate and currentShift
 	const todaysOrders = sourceOrders.filter((o) => o.date === currentDate && (String(o.shift).includes(currentShift) || o.shift === currentShift));
 
-	const activeOrders = todaysOrders.filter((o) => o.status === "PLANNED_OUTPUT" || o.status === "ACTIVE");
 	const completedOrders = todaysOrders.filter((o) => o.status === "ACTUAL_OUTPUT");
+
+	// Filter active orders: exclude those that are already in completedOrders
+	const completedIds = new Set(completedOrders.map((o) => o.workOrder || o.id));
+	const activeOrders = todaysOrders.filter(
+		(o) => (o.status === "PLANNED_OUTPUT" || o.status === "ACTIVE") && !completedIds.has(o.workOrder || o.id),
+	);
 
 	const activeCount = activeOrders.length;
 
@@ -247,11 +254,70 @@ export default function Home() {
 
 	const displayProjected = `${formatNumber(totalActual)}/${formatNumber(totalTarget)}`;
 
-	// First Pass Yield: (Actual / (Actual + Rejects)) * 100
-	const totalRejects = todaysOrders.reduce((sum, order) => sum + (order.rejects || 0), 0);
-	const totalProduced = totalActual + totalRejects;
-	const yieldValue = totalProduced > 0 ? (totalActual / totalProduced) * 100 : 0;
-	const displayYield = yieldValue.toFixed(1) + "%";
+	// Production Uptime Metric
+
+	// Helper to parse "HH:MM AM/PM" or "HH:MM" string to a timestamp for the given order date/shift
+	const parseOrderTime = (dStr: string, tStr: string, shift: string) => {
+		if (!dStr || !tStr) return 0;
+		const [y, m, d] = dStr.split("-").map(Number);
+		const parts = tStr.split(" ");
+		const timePart = parts[0];
+		const modifier = parts.length > 1 ? parts[1] : null;
+
+		let [h, min] = timePart.split(":").map(Number);
+
+		if (modifier === "PM" && h < 12) h += 12;
+		if (modifier === "AM" && h === 12) h = 0;
+
+		const date = new Date(y, m - 1, d, h, min, 0);
+
+		// Handle Night Shift crossing midnight
+		if (String(shift).includes("Night")) {
+			// If it's night shift and time is AM, it's the next day
+			// OR if explicit modifier is absent but hour is small (e.g. 0-7), assume next day
+			// But for safety, relying on "AM" is best if format is consistent.
+			// If format is 24h, 00:00 to 07:00 implies next day for a shift starting at 20:00.
+			if (modifier === "AM" || (!modifier && h < 8)) {
+				date.setDate(date.getDate() + 1);
+			}
+		}
+		return date.getTime();
+	};
+
+	const getDurationHours = (list: typeof todaysOrders, startKey: keyof (typeof list)[0], endKey: keyof (typeof list)[0]) => {
+		if (!list.length) return 0;
+		let min = Infinity;
+		let max = -Infinity;
+		let found = false;
+
+		list.forEach((o) => {
+			const sVal = o[startKey] as string;
+			const eVal = o[endKey] as string;
+			if (!sVal || !eVal) return;
+
+			const s = parseOrderTime(o.date, sVal, o.shift);
+			const e = parseOrderTime(o.date, eVal, o.shift);
+
+			if (s && e && e > s) {
+				if (s < min) min = s;
+				if (e > max) max = e;
+				found = true;
+			}
+		});
+
+		if (!found) return 0;
+		const hours = (max - min) / (1000 * 60 * 60);
+		return Math.max(0, hours);
+	};
+
+	// Planned: Use ALL orders for today to determine the full planned shift span
+	const plannedHours = getDurationHours(todaysOrders, "startTime", "endTime");
+	// Actual: Use COMPLETED orders to determine actual elapsed work execution span
+	// Fallback to planned start/end if actuals missing, but user requested "from completed, find actual"
+	// We'll trust actualStartTime/endTime are present on completed orders.
+	const actualHours = getDurationHours(completedOrders, "actualStartTime", "actualEndTime");
+
+	const displayUptime = `${actualHours.toFixed(1)}H/${plannedHours.toFixed(1)}H`;
 
 	const activeMachines = new Set(activeOrders.map((o) => o.machine)).size;
 
@@ -313,10 +379,10 @@ export default function Home() {
 					</Card>
 					<Card className="p-4">
 						<div className="flex justify-between items-start mb-2">
-							<span className="material-symbols-outlined text-green-600 !text-xl !leading-none py-0.5">check_circle</span>
+							<span className="material-symbols-outlined text-green-600 !text-xl !leading-none py-0.5">timelapse</span>
 						</div>
-						<MetricValue>{displayYield}</MetricValue>
-						<MetricLabel>First Pass Yield</MetricLabel>
+						<MetricValue>{displayUptime}</MetricValue>
+						<MetricLabel>Production Uptime</MetricLabel>
 					</Card>
 					<Card className="p-4">
 						<div className="flex justify-between items-start mb-2">
