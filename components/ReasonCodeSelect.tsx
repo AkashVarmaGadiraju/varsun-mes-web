@@ -17,7 +17,7 @@ export type ReasonCodeEntry = {
 	category: string;
 };
 
-export const OFFLINE_REASON_CODES: ReasonCodeEntry[] = [
+export const IDLE_REASON_CODES: ReasonCodeEntry[] = [
 	{ code: "11", description: "No Power", category: "OUTAGE" },
 	{ code: "12", description: "MCB Fault", category: "OUTAGE" },
 	{ code: "13", description: "Sensor Fault", category: "CALIBRATION" },
@@ -25,7 +25,7 @@ export const OFFLINE_REASON_CODES: ReasonCodeEntry[] = [
 	{ code: "19", description: "Other", category: "OTHER" },
 ];
 
-export const IDLE_REASON_CODES: ReasonCodeEntry[] = [
+export const OFFLINE_REASON_CODES: ReasonCodeEntry[] = [
 	{ code: "21", description: "Breakdown", category: "OUTAGE" },
 	{ code: "22", description: "No Operator", category: "LABOR_UNAVAILABLE" },
 	{ code: "23", description: "No Work", category: "WORK_UNAVAILABLE" },
@@ -44,7 +44,7 @@ export const ONLINE_REASON_CODES: ReasonCodeEntry[] = [
 ];
 
 export const UNAVAILABLE_REASON_CODES: ReasonCodeEntry[] = [
-	{ code: "39", description: "Unavailable", category: "UNAVAILABLE" },
+	{ code: "11", description: "No Power", category: "OUTAGE" },
 ];
 
 const REASON_CODE_MAP: Record<string, ReasonCodeEntry> = [
@@ -80,18 +80,18 @@ export function ReasonCodeSelect({ value, onChange, eventType, className }: Reas
 	const isRunning = normalizedType === "running" || normalizedType === "active";
 	const isUnavailable = normalizedType === "unavailable";
 	const codes = isOffline
-		? IDLE_REASON_CODES
+		? OFFLINE_REASON_CODES
 		: isIdle
-			? OFFLINE_REASON_CODES
+			? IDLE_REASON_CODES
 			: isRunning
 				? ONLINE_REASON_CODES
 				: isUnavailable
 					? UNAVAILABLE_REASON_CODES
 					: IDLE_REASON_CODES;
 	const categoryLabel = isOffline
-		? "Idle Codes"
+		? "Offline Codes"
 		: isIdle
-			? "Offline Codes"
+			? "Idle Codes"
 			: isRunning
 				? "Online Codes"
 				: isUnavailable

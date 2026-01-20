@@ -202,13 +202,13 @@ export default function MachineTaggingPage() {
 				});
 				const groupItems = Array.isArray(groups)
 					? (groups as any[]).flatMap((group: any) => {
-							const items = Array.isArray(group?.Items) ? group.Items : [];
-							return items.map((item: any) => ({
-								...item,
-								groupId: group.id,
-								groupTags: Array.isArray(group.tags) ? group.tags : [],
-							}));
-						})
+						const items = Array.isArray(group?.Items) ? group.Items : [];
+						return items.map((item: any) => ({
+							...item,
+							groupId: group.id,
+							groupTags: Array.isArray(group.tags) ? group.tags : [],
+						}));
+					})
 					: [];
 
 				console.log("API Response:", result);
@@ -554,10 +554,19 @@ function EventCard({
 			const rangeEndMs = toDateUTC.getTime();
 			const matchingGroup = Array.isArray(existingGroups)
 				? existingGroups.find((group) => {
-						const startMs = group?.rangeStart ? new Date(group.rangeStart).getTime() : NaN;
-						const endMs = group?.rangeEnd ? new Date(group.rangeEnd).getTime() : NaN;
-						return startMs === rangeStartMs && endMs === rangeEndMs;
-					})
+					const startMs = group?.rangeStart ? new Date(group.rangeStart).getTime() : NaN;
+					const endMs = group?.rangeEnd ? new Date(group.rangeEnd).getTime() : NaN;
+
+					// Check metadata for annotationType: 'event'
+					// We treat 'null' metadata as valid for legacy reasons? 
+					// NO, user said: "if any item didnot match we create group and item if any group and item is there with that we update group"
+					// AND "check in that metadat is annoationstype is event"
+					// So we MUST strictly match annotationType === 'event'.
+					const meta = group?.metadata as Record<string, unknown> | undefined;
+					const isEventGroup = meta?.annotationType === "event";
+
+					return startMs === rangeStartMs && endMs === rangeEndMs && isEventGroup;
+				})
 				: null;
 
 			const itemPayload: DeviceStateEventItemInput = {
@@ -612,6 +621,7 @@ function EventCard({
 					body: {
 						rangeStart: fromDateUTC.toISOString(),
 						rangeEnd: toDateUTC.toISOString(),
+						metadata: { annotationType: "event" },
 						items: [itemPayload],
 					},
 				});

@@ -24,13 +24,27 @@ function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
 }
 
-const buildUtcRangeFromIstDate = (dateStr: string) => {
+const buildUtcRangeFromIstDate = (dateStr: string, currentShift: string) => {
 	const [year, month, day] = dateStr.split("-").map(Number);
-	const utcMidnight = Date.UTC(year, month - 1, day, 0, 0, 0, 0);
-	const utcEndOfDay = Date.UTC(year, month - 1, day, 23, 59, 59, 999);
 	const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-	const fromDateUTC = new Date(utcMidnight - IST_OFFSET_MS);
-	const toDateUTC = new Date(utcEndOfDay - IST_OFFSET_MS);
+
+	let fromDateUTC: Date;
+	let toDateUTC: Date;
+
+	if (currentShift === "Day") {
+		// Day Shift: 8 AM to 8 PM IST
+		const start = Date.UTC(year, month - 1, day, 8, 0, 0, 0);
+		const end = Date.UTC(year, month - 1, day, 20, 0, 0, 0);
+		fromDateUTC = new Date(start - IST_OFFSET_MS);
+		toDateUTC = new Date(end - IST_OFFSET_MS);
+	} else {
+		// Night Shift: 8 PM to 8 AM next day IST
+		const start = Date.UTC(year, month - 1, day, 20, 0, 0, 0);
+		const end = Date.UTC(year, month - 1, day + 1, 8, 0, 0, 0);
+		fromDateUTC = new Date(start - IST_OFFSET_MS);
+		toDateUTC = new Date(end - IST_OFFSET_MS);
+	}
+
 	return { fromDateUTC, toDateUTC };
 };
 
@@ -59,7 +73,7 @@ export default function EventGroupingPage() {
 	const machineId = params?.id && typeof params.id === "string" ? decodeURIComponent(params.id) : "Unknown Machine";
 	const eventId = params?.eventId && typeof params.eventId === "string" ? decodeURIComponent(params.eventId) : "unknown";
 
-	const { currentDate, eventsDevices, setEventsDevices } = useData();
+	const { currentDate, eventsDevices, setEventsDevices, currentShift } = useData();
 	const lhtClusterId = process.env.NEXT_PUBLIC_LHT_CLUSTER_ID ?? "";
 
 	// Fetch devices if not present
@@ -93,7 +107,7 @@ export default function EventGroupingPage() {
 				setLoading(true);
 				if (!lhtClusterId) throw new Error("Cluster ID is not configured.");
 				if (!machineId || machineId === "Unknown Machine") throw new Error("Invalid machine ID");
-				const { fromDateUTC, toDateUTC } = buildUtcRangeFromIstDate(currentDate);
+				const { fromDateUTC, toDateUTC } = buildUtcRangeFromIstDate(currentDate, currentShift);
 				const periods = await fetchDeviceStatusPeriods({
 					deviceId: machineId,
 					clusterId: lhtClusterId,
@@ -117,13 +131,14 @@ export default function EventGroupingPage() {
 
 				const groupItems = Array.isArray(groups)
 					? groups.flatMap((group) => {
-							const items = Array.isArray(group?.Items) ? group.Items : [];
-							return items.map((item) => ({
-								...item,
-								groupId: group.id,
-								groupTags: Array.isArray(group.tags) ? group.tags : [],
-							}));
-						})
+						const items = Array.isArray(group?.Items) ? group.Items : [];
+						return items.map((item) => ({
+							...item,
+							groupId: group.id,
+							groupTags: Array.isArray(group.tags) ? group.tags : [],
+							groupMetadata: group.metadata,
+						}));
+					})
 					: [];
 
 				const toIstTime = (utcDate: string) =>
@@ -137,11 +152,35 @@ export default function EventGroupingPage() {
 				const events = periods.data.map((period: DeviceStatusPeriod, index: number) => {
 					const periodStartIso = normalizeIso(period.startTime);
 					const periodEndIso = normalizeIso(period.endTime ?? new Date().toISOString());
-					const matchedItem = groupItems.find((item) => {
-						const itemStart = normalizeIso(item.segmentStart);
-						const itemEnd = normalizeIso(item.segmentEnd);
-						return itemStart === periodStartIso && itemEnd === periodEndIso;
+
+					// 1. Try to find a match specifically from an "Event" group
+					let matchedItem = groupItems.find((item) => {
+						const itemStartMs = new Date(item.segmentStart).getTime();
+						const itemEndMs = new Date(item.segmentEnd).getTime();
+						const periodStartMs = new Date(period.startTime).getTime();
+						const periodEndMs = new Date(period.endTime ?? new Date()).getTime();
+
+						// Allow small buffer (1s) for time differences
+						const startMatch = Math.abs(itemStartMs - periodStartMs) < 1000;
+						const endMatch = Math.abs(itemEndMs - periodEndMs) < 1000;
+
+						const isEventGroup = (item.groupMetadata as any)?.annotationType === "event";
+						return startMatch && endMatch && isEventGroup;
 					});
+
+					// 2. Fallback: Find any match (e.g. from legacy groups or other sources)
+					if (!matchedItem) {
+						matchedItem = groupItems.find((item) => {
+							const itemStartMs = new Date(item.segmentStart).getTime();
+							const itemEndMs = new Date(item.segmentEnd).getTime();
+							const periodStartMs = new Date(period.startTime).getTime();
+							const periodEndMs = new Date(period.endTime ?? new Date()).getTime();
+
+							const startMatch = Math.abs(itemStartMs - periodStartMs) < 1000;
+							const endMatch = Math.abs(itemEndMs - periodEndMs) < 1000;
+							return startMatch && endMatch;
+						});
+					}
 					const reasonCode = matchedItem?.metadata?.reasonCode ?? matchedItem?.notes ?? "";
 					const tagsValue = (matchedItem?.metadata?.Tags ?? matchedItem?.metadata?.tags ?? "") as string;
 					return {
@@ -182,7 +221,7 @@ export default function EventGroupingPage() {
 		if (machineId && lhtClusterId) {
 			loadEvent();
 		}
-	}, [eventId, machineId, lhtClusterId, currentDate]);
+	}, [eventId, machineId, lhtClusterId, currentDate, currentShift]);
 
 	// Handlers
 	const handleAddMetadata = () => {
@@ -211,7 +250,7 @@ export default function EventGroupingPage() {
 			if (!reason) throw new Error("Please select a reason code.");
 			if (!eventData?.rawStartTime || !eventData?.rawEndTime) throw new Error("Missing event time range.");
 
-			const { fromDateUTC, toDateUTC } = buildUtcRangeFromIstDate(currentDate);
+			const { fromDateUTC, toDateUTC } = buildUtcRangeFromIstDate(currentDate, currentShift);
 			const account = {};
 			const category = getReasonCategory(reason);
 			const metadataObj = metadataFromArray(metadata);
@@ -236,10 +275,13 @@ export default function EventGroupingPage() {
 			const rangeEndMs = toDateUTC.getTime();
 			const matchingGroup = Array.isArray(existingGroups)
 				? existingGroups.find((group) => {
-						const startMs = group?.rangeStart ? new Date(group.rangeStart).getTime() : NaN;
-						const endMs = group?.rangeEnd ? new Date(group.rangeEnd).getTime() : NaN;
-						return startMs === rangeStartMs && endMs === rangeEndMs;
-					})
+					const startMs = group?.rangeStart ? new Date(group.rangeStart).getTime() : NaN;
+					const endMs = group?.rangeEnd ? new Date(group.rangeEnd).getTime() : NaN;
+					// Strict check for annotationType: 'event'
+					const meta = group?.metadata as Record<string, unknown> | undefined;
+					const isEventGroup = meta?.annotationType === "event";
+					return startMs === rangeStartMs && endMs === rangeEndMs && isEventGroup;
+				})
 				: null;
 
 			const itemPayload = {
@@ -296,10 +338,11 @@ export default function EventGroupingPage() {
 						rangeEnd: toDateUTC.toISOString(),
 						tags: tagsText.trim()
 							? tagsText
-									.split(",")
-									.map((tag) => tag.trim())
-									.filter(Boolean)
+								.split(",")
+								.map((tag) => tag.trim())
+								.filter(Boolean)
 							: undefined,
+						metadata: { annotationType: "event" },
 						items: [itemPayload],
 					},
 				});
