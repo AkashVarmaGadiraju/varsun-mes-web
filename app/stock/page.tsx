@@ -305,7 +305,13 @@ export default function StockPage() {
 					onSearchChange={setSearchQuery}
 					placeholder="Search stock..."
 					showFilters={showFilters}
-					onToggleFilters={() => setShowFilters(!showFilters)}
+					onToggleFilters={() => {
+						if (showFilters) {
+							setFilterOperator("All");
+							setFilterMachine("All");
+						}
+						setShowFilters(!showFilters);
+					}}
 				/>
 
 				{/* Filter Panel */}

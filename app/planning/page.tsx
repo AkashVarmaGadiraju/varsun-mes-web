@@ -307,6 +307,18 @@ export default function PlanningPage() {
 		setSelectedIds((prev) => (prev.includes(key) ? prev.filter((i) => i !== key) : [...prev, key]));
 	};
 
+	const hasLinkedStock = (item: Assignment) => {
+		if (!lighthouseEnabled) return false;
+		return sourceAssignments.some((a) => {
+			if (a.status !== "ACTUAL_OUTPUT") return false;
+			if (a.workOrder !== item.workOrder) return false;
+			// Check if opNumbers match
+			const opA = (a.opNumber || []).sort().join(",");
+			const opB = (item.opNumber || []).sort().join(",");
+			return opA === opB;
+		});
+	};
+
 	const handleBatchDeleteClick = () => {
 		if (selectedIds.length === 0) return;
 		setShowDeleteConfirm(true);
@@ -389,7 +401,13 @@ export default function PlanningPage() {
 					onSearchChange={setSearchQuery}
 					placeholder="Search assignments..."
 					showFilters={showFilters}
-					onToggleFilters={() => setShowFilters(!showFilters)}
+					onToggleFilters={() => {
+						if (showFilters) {
+							setFilterOperator("All");
+							setFilterMachine("All");
+						}
+						setShowFilters(!showFilters);
+					}}
 				/>
 
 				{showFilters && (
@@ -461,18 +479,30 @@ export default function PlanningPage() {
 							// Use workOrder for routing if available, otherwise fallback to group ID
 							const routeId = item.id;
 							const href = `/planning/create?id=${encodeURIComponent(routeId)}&deviceId=${encodeURIComponent(item.lhtDeviceId ?? "ALL")}&date=${encodeURIComponent(currentDate)}`;
+
+							const isCompletedInStock = hasLinkedStock(item);
+							const isDisabled = isDeleteMode && isCompletedInStock;
+
 							return (
 								<Link
 									key={key}
 									href={isDeleteMode ? "#" : href}
 									className={cn(
 										"planning-card",
-										isDeleteMode ? "cursor-default" : "active:scale-[0.99] hover:border-card-border border-card-border",
+										isDisabled
+											? "opacity-50 cursor-not-allowed"
+											: isDeleteMode
+												? "cursor-default"
+												: "active:scale-[0.99] hover:border-card-border border-card-border",
 										selectedIds.includes(key) ? "planning-card-selected" : "border-card-border",
 									)}
 									onClick={(e) => {
 										if (isDeleteMode) {
 											e.preventDefault();
+											if (isCompletedInStock) {
+												toast.error("Cannot delete this order as it has already been completed in Stock.");
+												return;
+											}
 											toggleSelection(item);
 										}
 									}}

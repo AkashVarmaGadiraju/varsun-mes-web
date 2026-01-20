@@ -142,7 +142,13 @@ export default function EventsPage() {
 					onSearchChange={setSearchQuery}
 					placeholder="Search machines..."
 					showFilters={showFilters}
-					onToggleFilters={() => setShowFilters(!showFilters)}
+					onToggleFilters={() => {
+						if (showFilters) {
+							setFilterStatus("All");
+							setFilterConnection("All");
+						}
+						setShowFilters(!showFilters);
+					}}
 				/>
 
 				{showFilters && (
