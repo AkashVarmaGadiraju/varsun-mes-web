@@ -247,9 +247,11 @@ export default function Home() {
 
 	const displayProjected = `${formatNumber(totalActual)}/${formatNumber(totalTarget)}`;
 
-	// Efficiency: (Actual / Target) * 100
-	const efficiencyValue = totalTarget > 0 ? (totalActual / totalTarget) * 100 : 0;
-	const displayEfficiency = efficiencyValue.toFixed(1) + "%";
+	// First Pass Yield: (Actual / (Actual + Rejects)) * 100
+	const totalRejects = todaysOrders.reduce((sum, order) => sum + (order.rejects || 0), 0);
+	const totalProduced = totalActual + totalRejects;
+	const yieldValue = totalProduced > 0 ? (totalActual / totalProduced) * 100 : 0;
+	const displayYield = yieldValue.toFixed(1) + "%";
 
 	const activeMachines = new Set(activeOrders.map((o) => o.machine)).size;
 
@@ -311,13 +313,10 @@ export default function Home() {
 					</Card>
 					<Card className="p-4">
 						<div className="flex justify-between items-start mb-2">
-							<span className="material-symbols-outlined text-green-600 !text-xl !leading-none py-0.5">bolt</span>
-							{/* <Badge variant="success" className="px-1 py-0">
-								Live
-							</Badge> */}
+							<span className="material-symbols-outlined text-green-600 !text-xl !leading-none py-0.5">check_circle</span>
 						</div>
-						<MetricValue>{displayEfficiency}</MetricValue>
-						<MetricLabel>Plant Efficiency</MetricLabel>
+						<MetricValue>{displayYield}</MetricValue>
+						<MetricLabel>First Pass Yield</MetricLabel>
 					</Card>
 					<Card className="p-4">
 						<div className="flex justify-between items-start mb-2">

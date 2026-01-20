@@ -19,6 +19,8 @@ import {
 } from "@/utils/scripts";
 import { combineISTDateAndTime, formatTimeToIST24 } from "@/utils/dateUtils";
 import { cn } from "@/lib/utils";
+import CustomDatePicker from "@/components/CustomDatePicker";
+import { format, parse } from "date-fns";
 
 type ApiEventItem = {
 	id?: string;
@@ -87,7 +89,12 @@ function StockEntryForm() {
 	};
 
 	// Completion Form State
-	const [actualOutput, setActualOutput] = useState(() => orderFromContext?.actualOutput || 0);
+	const [actualOutput, setActualOutput] = useState(() => {
+		if (orderFromContext?.status === "ACTUAL_OUTPUT") {
+			return orderFromContext.actualOutput ?? 0;
+		}
+		return orderFromContext?.target ?? orderFromContext?.batch ?? 0;
+	});
 	const [toolChanges, setToolChanges] = useState(() => orderFromContext?.toolChanges || 0);
 	const [rejects, setRejects] = useState(() => orderFromContext?.rejects || 0);
 	const [actualStartTime, setActualStartTime] = useState(() => orderFromContext?.actualStartTime || orderFromContext?.startTime || "");
@@ -163,6 +170,17 @@ function StockEntryForm() {
 	// Build ISO datetime: preserves date from baseDate, updates time from HH:MM string (interpreted as IST)
 	const buildSegmentDateTime = (baseDate: string, timeHHMM: string) => {
 		return combineISTDateAndTime(baseDate, timeHHMM);
+	};
+
+	// Helper function to format time for display
+	const formatTimeDisplay = (time24: string) => {
+		if (!time24) return "";
+		try {
+			const date = parse(time24, "HH:mm", new Date());
+			return format(date, "hh:mm aa");
+		} catch (e) {
+			return time24;
+		}
 	};
 
 	// Main data fetching effect (Devices + Assignment)
@@ -334,7 +352,11 @@ function StockEntryForm() {
 				// Seed local storage for future
 				addOrder(built);
 
-				setActualOutput(built.actualOutput || 0);
+				if (built.status === "ACTUAL_OUTPUT") {
+					setActualOutput(built.actualOutput ?? 0);
+				} else {
+					setActualOutput(built.target ?? built.batch ?? 0);
+				}
 				setToolChanges(built.toolChanges || 0);
 				setRejects(built.rejects || 0);
 				setRemarks(built.remarks || "");
@@ -406,47 +428,73 @@ function StockEntryForm() {
 
 		if (lighthouseEnabled && order.lhtDeviceId) {
 			try {
-				// Build segment times preserving date from group range, updating time portion
-				const baseDate = groupRangeStart || order.date;
-				let segmentStart = buildSegmentDateTime(baseDate, actualStartTime);
-				let segmentEnd = buildSegmentDateTime(baseDate, actualEndTime);
-
-				// Handle overnight logic (if End < Start, assume next day)
-				if (segmentStart && segmentEnd && new Date(segmentEnd) < new Date(segmentStart)) {
-					const end = new Date(segmentEnd);
-					end.setDate(end.getDate() + 1);
-					segmentEnd = end.toISOString();
-				}
-
-				// Validate actual times against group range (similar to create form validation)
-				if (groupRangeStart && groupRangeEnd && segmentStart && segmentEnd) {
-					const rangeStartMs = new Date(groupRangeStart).getTime();
-					const rangeEndMs = new Date(groupRangeEnd).getTime();
-					const segStartMs = new Date(segmentStart).getTime();
-					const segEndMs = new Date(segmentEnd).getTime();
-
-					if (
-						!Number.isFinite(rangeStartMs) ||
-						!Number.isFinite(rangeEndMs) ||
-						!Number.isFinite(segStartMs) ||
-						!Number.isFinite(segEndMs) ||
-						segStartMs < rangeStartMs ||
-						segEndMs > rangeEndMs
-					) {
-						toast.error("Actual times must be within the shift window");
-						setIsSaving(false);
-						return;
-					}
-				}
-
-				// Build range from group or from order date
+				// 1. Determine Shift Range (Authoritative)
 				const range =
 					groupRangeStart && groupRangeEnd
 						? { rangeStart: groupRangeStart, rangeEnd: groupRangeEnd }
 						: toIsoShiftRange(order.date, order.shift);
 
-				// For new groups (PLANNED), ensure range covers the segment end
-				if (itemCategory === "PLANNED_OUTPUT" && range && segmentEnd && new Date(segmentEnd) > new Date(range.rangeEnd)) {
+				if (!range || !range.rangeStart || !range.rangeEnd) {
+					toast.error("Unable to determine shift window");
+					setIsSaving(false);
+					return;
+				}
+
+				const rangeStartMs = new Date(range.rangeStart).getTime();
+				const rangeEndMs = new Date(range.rangeEnd).getTime();
+
+				// 2. Build Segment Times & Auto-Correct for Overnight/Next-Day
+				const baseDate = groupRangeStart || order.date;
+				let sStart = buildSegmentDateTime(baseDate, actualStartTime);
+				let sEnd = buildSegmentDateTime(baseDate, actualEndTime);
+
+				if (!sStart || !sEnd) {
+					toast.error("Invalid start or end time");
+					setIsSaving(false);
+					return;
+				}
+
+				let sStartMs = new Date(sStart).getTime();
+				let sEndMs = new Date(sEnd).getTime();
+
+				// If Start is earlier than Range Start (e.g. 01:00 AM for a Night Shift starting 20:00 PM previous day),
+				// assume it belongs to the "next day" part of the shift.
+				// For Day Shift, this makes it "Tomorrow 07:00" which correctly fails validation.
+				if (sStartMs < rangeStartMs) {
+					const d = new Date(sStartMs);
+					d.setDate(d.getDate() + 1);
+					sStart = d.toISOString();
+					sStartMs = d.getTime();
+				}
+
+				// If End is earlier than Start, it crosses midnight
+				if (sEndMs < sStartMs) {
+					const d = new Date(sEndMs);
+					d.setDate(d.getDate() + 1);
+					sEnd = d.toISOString();
+					sEndMs = d.getTime();
+				}
+
+				// 3. Strict Validation
+				if (sStartMs < rangeStartMs || sEndMs > rangeEndMs) {
+					// Format range start/end for display
+					const rangeStartStr = new Date(rangeStartMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
+					const rangeEndStr = new Date(rangeEndMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
+
+					toast.error(`Time must be within ${order.shift} (${rangeStartStr} - ${rangeEndStr})`, {
+						description: "Please check your entered Actual Start/End times.",
+						duration: 4000,
+					});
+					setIsSaving(false);
+					return;
+				}
+
+				// Assign to variables used in payload
+				const segmentStart = sStart;
+				const segmentEnd = sEnd;
+
+				// For new groups (PLANNED), ensure range covers the segment end if somehow it goes beyond (shouldn't happen with strict validation above, but kept for safety/logic consistency)
+				if (itemCategory === "PLANNED_OUTPUT" && new Date(segmentEnd) > new Date(range.rangeEnd)) {
 					range.rangeEnd = segmentEnd;
 				}
 
@@ -767,25 +815,37 @@ function StockEntryForm() {
 								<div className="flex !gap-2 bg-primary/5 !p-3 rounded-lg border border-primary/10 transition-colors">
 									<div className="flex-1 flex flex-col justify-center">
 										<p className="!text-[9px] font-bold text-primary/60 uppercase leading-none mb-[2px]">Actual Start</p>
-										<input
-											type="time"
-											min={order.shift === "Day Shift (S1)" ? "08:00" : undefined}
-											max={order.shift === "Day Shift (S1)" ? "20:00" : undefined}
+										<CustomDatePicker
+											showTimeSelectOnly
 											value={actualStartTime}
-											onChange={(e) => setActualStartTime(e.target.value)}
-											className="w-full bg-transparent border-none p-0 text-xs font-bold text-primary focus:ring-0 leading-none h-auto"
+											onChange={(val) => setActualStartTime(val)}
+											dateFormat="hh:mm aa"
+											customInput={
+												<button
+													type="button"
+													className="w-full text-left bg-transparent border-none p-0 text-xs font-bold text-primary focus:ring-0 leading-none h-auto cursor-pointer block"
+												>
+													{formatTimeDisplay(actualStartTime) || "00:00 AM"}
+												</button>
+											}
 										/>
 									</div>
 									<div className="w-px bg-primary/20"></div>
 									<div className="flex-1 flex flex-col justify-center">
 										<p className="!text-[9px] font-bold text-primary/60 uppercase leading-none mb-[2px]">Actual End</p>
-										<input
-											type="time"
-											min={order.shift === "Day Shift (S1)" ? "08:00" : undefined}
-											max={order.shift === "Day Shift (S1)" ? "20:00" : undefined}
+										<CustomDatePicker
+											showTimeSelectOnly
 											value={actualEndTime}
-											onChange={(e) => setActualEndTime(e.target.value)}
-											className="w-full bg-transparent border-none p-0 text-xs font-bold text-primary focus:ring-0 leading-none h-auto"
+											onChange={(val) => setActualEndTime(val)}
+											dateFormat="hh:mm aa"
+											customInput={
+												<button
+													type="button"
+													className="w-full text-left bg-transparent border-none p-0 text-xs font-bold text-primary focus:ring-0 leading-none h-auto cursor-pointer block"
+												>
+													{formatTimeDisplay(actualEndTime) || "00:00 AM"}
+												</button>
+											}
 										/>
 									</div>
 								</div>
