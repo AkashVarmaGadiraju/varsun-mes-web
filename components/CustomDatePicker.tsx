@@ -254,7 +254,7 @@ export default function CustomDatePicker({
 		return (
 			<div className={cn("custom-datepicker-wrapper relative", className)} ref={containerRef}>
 				{customInput ? (
-					React.cloneElement(customInput as React.ReactElement, {
+					React.cloneElement(customInput as React.ReactElement<any>, {
 						onClick: openPicker,
 					})
 				) : (

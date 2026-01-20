@@ -133,14 +133,14 @@ export default function EventGroupingPage() {
 
 				const groupItems = Array.isArray(groups)
 					? groups.flatMap((group) => {
-						const items = Array.isArray(group?.Items) ? group.Items : [];
-						return items.map((item) => ({
-							...item,
-							groupId: group.id,
-							groupTags: Array.isArray(group.tags) ? group.tags : [],
-							groupMetadata: group.metadata,
-						}));
-					})
+							const items = Array.isArray(group?.Items) ? group.Items : [];
+							return items.map((item: any) => ({
+								...item,
+								groupId: group.id,
+								groupTags: Array.isArray(group.tags) ? group.tags : [],
+								groupMetadata: group.metadata,
+							}));
+						})
 					: [];
 
 				const toIstTime = (utcDate: string) =>
@@ -264,13 +264,13 @@ export default function EventGroupingPage() {
 			const rangeEndMs = toDateUTC.getTime();
 			const matchingGroup = Array.isArray(existingGroups)
 				? existingGroups.find((group) => {
-					const startMs = group?.rangeStart ? new Date(group.rangeStart).getTime() : NaN;
-					const endMs = group?.rangeEnd ? new Date(group.rangeEnd).getTime() : NaN;
-					// Strict check for annotationType: 'event'
-					const meta = group?.metadata as Record<string, unknown> | undefined;
-					const isEventGroup = meta?.annotationType === "event";
-					return startMs === rangeStartMs && endMs === rangeEndMs && isEventGroup;
-				})
+						const startMs = group?.rangeStart ? new Date(group.rangeStart).getTime() : NaN;
+						const endMs = group?.rangeEnd ? new Date(group.rangeEnd).getTime() : NaN;
+						// Strict check for annotationType: 'event'
+						const meta = group?.metadata as Record<string, unknown> | undefined;
+						const isEventGroup = meta?.annotationType === "event";
+						return startMs === rangeStartMs && endMs === rangeEndMs && isEventGroup;
+					})
 				: null;
 
 			const itemPayload = {
@@ -328,9 +328,9 @@ export default function EventGroupingPage() {
 						title: `Event-${fromDateUTC.toISOString().split("T")[0]}-${toDateUTC.toISOString().split("T")[0]}`,
 						tags: tagsText.trim()
 							? tagsText
-								.split(",")
-								.map((tag) => tag.trim())
-								.filter(Boolean)
+									.split(",")
+									.map((tag) => tag.trim())
+									.filter(Boolean)
 							: undefined,
 						metadata: { annotationType: "event" },
 						items: [itemPayload],
@@ -361,14 +361,7 @@ export default function EventGroupingPage() {
 				groupId: savedGroupId,
 			});
 
-			toast.custom((t) => (
-				<CustomToast
-					t={t}
-					type="success"
-					title="Save Successful"
-					message="Event details have been saved successfully."
-				/>
-			));
+			toast.custom((t) => <CustomToast t={t} type="success" title="Save Successful" message="Event details have been saved successfully." />);
 
 			router.back();
 		} catch (error) {
@@ -513,7 +506,6 @@ export default function EventGroupingPage() {
 							<div className="space-y-1.5">
 								<label className="block text-[11px] font-bold text-gray-500 uppercase ml-1">Reason Code</label>
 								<ReasonCodeSelect value={reason} onChange={setReason} eventType={eventData.type} />
-
 							</div>
 
 							{/* Metadata */}
