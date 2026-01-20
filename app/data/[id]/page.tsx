@@ -4,6 +4,8 @@ import React, { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { clsx } from "clsx";
 import { ReasonCodeSelect, getReasonCategory, getReasonDescription } from "@/components/ReasonCodeSelect";
+import { toast } from "sonner";
+import { CustomToast } from "@/components/CustomToast";
 import EmptyState from "@/components/EmptyState";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -652,9 +654,26 @@ function EventCard({
 				itemId: savedItemId,
 				groupId: savedGroupId,
 			});
-			setIsExpanded(false);
+			setIsExpanded(true);
+
+			toast.custom((t) => (
+				<CustomToast
+					t={t}
+					type="success"
+					title="Save Successful"
+					message="Reason code has been saved successfully."
+				/>
+			));
 		} catch (err) {
 			console.error("Failed to save reason code:", err);
+			toast.custom((t) => (
+				<CustomToast
+					t={t}
+					type="error"
+					title="Save Failed"
+					message={err instanceof Error ? err.message : "Failed to save reason code."}
+				/>
+			));
 		} finally {
 			setIsSaving(false);
 		}

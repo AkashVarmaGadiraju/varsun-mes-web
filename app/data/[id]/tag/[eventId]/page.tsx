@@ -4,6 +4,8 @@ import React, { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { toast } from "sonner";
+import { CustomToast } from "@/components/CustomToast";
 import { ReasonCodeSelect, getReasonCategory, getReasonDescription, getReasonLabel } from "@/components/ReasonCodeSelect";
 import { useData } from "@/context/DataContext";
 import {
@@ -358,9 +360,27 @@ export default function EventGroupingPage() {
 				itemId: savedItemId,
 				groupId: savedGroupId,
 			});
+
+			toast.custom((t) => (
+				<CustomToast
+					t={t}
+					type="success"
+					title="Save Successful"
+					message="Event details have been saved successfully."
+				/>
+			));
+
 			router.back();
 		} catch (error) {
 			console.error("Failed to save event details:", error);
+			toast.custom((t) => (
+				<CustomToast
+					t={t}
+					type="error"
+					title="Save Failed"
+					message={error instanceof Error ? error.message : "Failed to save event details."}
+				/>
+			));
 			setIsSaving(false);
 		}
 	};
