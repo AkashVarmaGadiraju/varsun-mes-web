@@ -319,7 +319,7 @@ export default function StockPage() {
 									onChange={setFilterOperator}
 									options={operatorOptions}
 									placeholder="All"
-									className="w-full h-8 bg-white border-gray-200 shadow-sm text-xs"
+									className="w-full h-8 bg-white rounded-md text-xs"
 								/>
 							</div>
 						</div>
@@ -332,7 +332,7 @@ export default function StockPage() {
 									onChange={setFilterMachine}
 									options={machineOptions}
 									placeholder="All"
-									className="w-full h-8 bg-white border-gray-200 shadow-sm text-xs"
+									className="w-full h-8 bg-white rounded-md text-xs"
 								/>
 							</div>
 						</div>
