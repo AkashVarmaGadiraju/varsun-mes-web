@@ -1,4 +1,8 @@
+"use client";
+
 import React from "react";
+import { useRouter } from "next/navigation";
+import { STORAGE_KEY } from "./AuthGuard";
 import Link from "next/link";
 import DateNavigator from "./DateNavigator";
 import { useData } from "@/context/DataContext";
@@ -19,7 +23,13 @@ type AppHeaderProps = {
 };
 
 export default function AppHeader({ title, subtitle, showDateNavigator = false, dateNavigatorDisabled = false, rightElement }: AppHeaderProps) {
+	const router = useRouter();
 	const { currentDate, setCurrentDate } = useData();
+
+	const handleLogout = () => {
+		localStorage.removeItem(STORAGE_KEY);
+		router.replace("/login");
+	};
 
 	return (
 		<>
@@ -38,8 +48,8 @@ export default function AppHeader({ title, subtitle, showDateNavigator = false, 
 						{rightElement ? (
 							rightElement
 						) : (
-							<button className="p-1 rounded-md active:scale-95 transition-transform hover:bg-gray-50">
-								<span className="material-symbols-outlined header-icon text-primary">menu</span>
+							<button onClick={handleLogout} className="p-1 rounded-md active:scale-95 transition-transform hover:bg-gray-50">
+								<span className="material-symbols-outlined header-icon text-primary">logout</span>
 							</button>
 						)}
 					</div>
