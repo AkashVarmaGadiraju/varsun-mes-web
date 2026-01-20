@@ -271,6 +271,8 @@ export default function StockPage() {
 		return matchesSearch && matchesOperator && matchesMachine;
 	});
 
+	console.log(filteredOrders);
+
 	return (
 		<div className="flex flex-col min-h-screen bg-background-dashboard pb-24">
 			<AppHeader title="Stock & Inventory" subtitle="Material Management" showDateNavigator={true} />

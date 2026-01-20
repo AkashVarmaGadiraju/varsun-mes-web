@@ -124,7 +124,7 @@ function StockEntryForm() {
 			endTime: o.endTime,
 			code: o.code,
 			partNumber: o.partNumber,
-			workOrderId: (o as any).workOrder || o.id, // Fallback safely
+			workOrderId: o.workOrder || "N/A", // Fallback safely
 			opNumber: o.opNumber,
 			batch: o.batch,
 			estTime,
@@ -221,7 +221,7 @@ function StockEntryForm() {
 						endTime: built.endTime,
 						code: built.code,
 						partNumber: built.partNumber,
-						workOrderId: (built as any).workOrder || built.id,
+						workOrderId: built.workOrder || "N/A",
 						opNumber: built.opNumber,
 						batch: built.batch,
 						estTime: parsedEstTime,
@@ -321,7 +321,7 @@ function StockEntryForm() {
 					actualEndTime: String(metadata.actualEndTime ?? ""),
 					// Add workOrder to the built object (cast to any or extend type locally if needed by consumers)
 					workOrder: String(metadata.workOrder ?? ""),
-				} as Order & { workOrder?: string };
+				};
 
 				if (cancelled) return;
 				setResolvedOrder(built);
@@ -352,7 +352,7 @@ function StockEntryForm() {
 					endTime: built.endTime,
 					code: built.code,
 					partNumber: built.partNumber,
-					workOrderId: built.id,
+					workOrderId: built.workOrder || "N/A",
 					opNumber: built.opNumber,
 					batch: built.batch,
 					estTime: parsedEstTime,
@@ -393,7 +393,7 @@ function StockEntryForm() {
 	// Fallback to minimal data if order is missing but we have error (shouldn't happen due to loading check, but safe)
 	const displayPN = order?.partNumber || "Unknown";
 	// Prefer workOrder if available, otherwise fallback to ID (which might be Group ID)
-	const displayID = (order as any).workOrder || order?.id || orderId;
+	const displayID = order?.workOrder || "N/A";
 	const displayDate = order ? new Date(order.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 	const target = order.target || 1;
 	const efficiency = Math.round((actualOutput / target) * 100);
@@ -470,11 +470,11 @@ function StockEntryForm() {
 									category: "ACTUAL_OUTPUT",
 									operatorCode: order.code,
 									partNumber: order.partNumber,
-									workOrder: order.id,
+									workOrder: order.workOrder,
 									opBatchQty: order.batch,
 									estPartAdd: order.estPart,
 									metadata: {
-										workOrder: order.id,
+										workOrder: order.workOrder || "N/A",
 										partNumber: order.partNumber,
 										operatorCode: order.code,
 										opBatchQty: order.batch,
@@ -540,11 +540,11 @@ function StockEntryForm() {
 								category: "ACTUAL_OUTPUT",
 								operatorCode: order.code,
 								partNumber: order.partNumber,
-								workOrder: order.id,
+								workOrder: order.workOrder || "N/A",
 								opBatchQty: order.batch,
 								estPartAdd: order.estPart,
 								metadata: {
-									workOrder: order.id,
+									workOrder: order.workOrder || "N/A",
 									partNumber: order.partNumber,
 									operatorCode: order.code,
 									opBatchQty: order.batch,

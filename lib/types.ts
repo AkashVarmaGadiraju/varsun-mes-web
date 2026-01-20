@@ -24,6 +24,8 @@ export interface Order {
 	actualStartTime?: string;
 	actualEndTime?: string;
 
+	workOrder?: string;
+
 	// Lighthouse References
 	lhtDeviceId?: string;
 	lhtGroupId?: string;
@@ -84,7 +86,6 @@ export const MOCK_INITIAL_ORDERS: Order[] = [
 ];
 
 export interface Assignment extends Order {
-	workOrder?: string;
 	// Non-Order fields used for delete selection + API calls
 	lhtItemId?: string;
 	lhtDeviceId?: string;
