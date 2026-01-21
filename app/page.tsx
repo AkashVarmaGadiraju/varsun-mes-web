@@ -354,11 +354,8 @@ export default function Home() {
 
 	if (isLoading || (lighthouseEnabled && globalAssignments === null)) {
 		return (
-			<div className="flex flex-col min-h-screen bg-background-dashboard">
-				<AppHeader title="Production Overview" subtitle="Live Plant Metrics" showDateNavigator={true} />
-				<div className="flex-1 flex flex-col items-center justify-center -mt-20">
-					<Loader />
-				</div>
+			<div className="flex flex-col min-h-screen bg-background-dashboard items-center justify-center">
+				<Loader />
 			</div>
 		);
 	}

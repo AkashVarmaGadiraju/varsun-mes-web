@@ -4,6 +4,23 @@ import "./globals.css";
 export const metadata: Metadata = {
 	title: "Varsun MES",
 	description: "Mobile Manufacturing Execution System",
+	manifest: "/manifest.json",
+	icons: {
+		icon: [
+			{ url: "/favicon/favicon-32x32.png", sizes: "32x32" },
+			{ url: "/favicon/favicon-16x16.png", sizes: "16x16" },
+		],
+		shortcut: "/favicon/favicon.ico",
+		apple: "/favicon/apple-touch-icon.png",
+	},
+	appleWebApp: {
+		capable: true,
+		statusBarStyle: "default",
+		title: "Varsun MES",
+	},
+	formatDetection: {
+		telephone: false,
+	},
 };
 
 export const viewport: Viewport = {
